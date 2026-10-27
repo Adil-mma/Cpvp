@@ -87,7 +87,7 @@ public final class ModuleSettingsScreen extends Screen {
     private int contentHeight() { return 38 + labels().length * ROW_H + 42; }
 
     private void layout() {
-        boxW = Math.max(270, Math.min(MAX_BOX_W, width - 20));
+        boxW = Math.max(160, Math.min(MAX_BOX_W, width - 20));
         boxH = contentHeight();
         x = (width - boxW) / 2;
         y = Math.max(8, (height - boxH) / 2);
