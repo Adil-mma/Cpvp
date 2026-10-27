@@ -23,12 +23,12 @@ public final class CpvpClient implements ClientModInitializer {
         totem = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.cpvp.auto_totem", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_L, CATEGORY));
         moduleKeys = new KeyMapping[] {
-                key("key.cpvp.fast_crystal", GLFW.GLFW_KEY_F6),
-                key("key.cpvp.auto_crystal", GLFW.GLFW_KEY_F7),
-                key("key.cpvp.hit_crystal", GLFW.GLFW_KEY_F8),
-                key("key.cpvp.anchor_macro", GLFW.GLFW_KEY_F9),
-                key("key.cpvp.safe_anchor", GLFW.GLFW_KEY_F10),
-                key("key.cpvp.double_anchor", GLFW.GLFW_KEY_F11)
+                key("key.cpvp.fast_crystal", GLFW.GLFW_KEY_UNKNOWN),
+                key("key.cpvp.auto_crystal", GLFW.GLFW_KEY_UNKNOWN),
+                key("key.cpvp.hit_crystal", GLFW.GLFW_KEY_UNKNOWN),
+                key("key.cpvp.anchor_macro", GLFW.GLFW_KEY_UNKNOWN),
+                key("key.cpvp.safe_anchor", GLFW.GLFW_KEY_UNKNOWN),
+                key("key.cpvp.double_anchor", GLFW.GLFW_KEY_UNKNOWN)
         };
 
         ClientTickEvents.END_CLIENT_TICK.register(c -> {
