@@ -48,13 +48,16 @@ public final class CombatModuleEngine {
         }
 
         long now = System.currentTimeMillis();
-        if (s.fastCrystalEnabled && ready(now, lastFastCrystal, s.fastCrystalDelayMs)) {
+        if (s.fastCrystalEnabled && !s.autoCrystalEnabled && !s.hitCrystalEnabled
+                && ready(now, lastFastCrystal, s.fastCrystalDelayMs)) {
             if (!s.fastCrystalOnlyWhileHolding || useHeld) {
                 fastCrystal(c);
                 lastFastCrystal = now;
             }
         }
-        if (s.autoCrystalEnabled && ready(now, lastAutoCrystal, s.autoCrystalDelayMs)) {
+        int autoDelay = s.fastCrystalEnabled
+                ? Math.min(s.autoCrystalDelayMs, s.fastCrystalDelayMs) : s.autoCrystalDelayMs;
+        if (s.autoCrystalEnabled && ready(now, lastAutoCrystal, autoDelay)) {
             autoCrystal(c, s);
             lastAutoCrystal = now;
         }
@@ -105,13 +108,10 @@ public final class CombatModuleEngine {
     }
 
     private static void hitCrystal(Minecraft c, CpvpConfig.Settings s) {
-        if (s.hitCrystalStopAboveTarget && c.player.getY() > c.player.blockPosition().getY() + 0.25) {
-            // This module is intentionally conservative while the player is above the target plane.
-            HitResult aimed = c.hitResult;
-            if (aimed instanceof EntityHitResult eh && eh.getEntity() instanceof EndCrystal crystal
-                    && c.player.getY() > crystal.getY() + 1.0) return;
-        }
         HitResult hit = c.hitResult;
+        if (s.hitCrystalStopAboveTarget && hit instanceof EntityHitResult eh
+                && eh.getEntity() instanceof EndCrystal crystal
+                && c.player.getY() > crystal.getY() + 1.0) return;
         if (hit instanceof EntityHitResult eh && eh.getEntity() instanceof EndCrystal crystal) {
             if (c.player.distanceToSqr(crystal) <= s.hitCrystalRange * s.hitCrystalRange) {
                 c.gameMode.attack(c.player, crystal);
