@@ -37,6 +37,7 @@ public final class CpvpClient implements ClientModInitializer {
             }
             if (c.player != null && c.level != null && c.gameMode != null) {
                 AutoTotemEngine.tick(c);
+                CombatModuleEngine.tick(c);
             }
         });
     }
