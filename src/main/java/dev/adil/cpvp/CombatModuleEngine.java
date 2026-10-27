@@ -34,20 +34,23 @@ public final class CombatModuleEngine {
     private CombatModuleEngine() {}
 
     public static void tick(Minecraft c) {
-        if (c.player == null || c.level == null || c.gameMode == null
-                || c.player.isSpectator() || c.player.isUsingItem() && !c.options.keyUse.isDown()) {
+        if (c.player == null || c.level == null || c.gameMode == null || c.player.isSpectator()) {
             resetSequences();
             return;
         }
 
         CpvpConfig.Settings s = CpvpConfig.settings();
         boolean useHeld = c.options.keyUse.isDown();
+        long now = System.currentTimeMillis();
         if (!useHeld) {
             resetSequences();
+            if (s.fastCrystalEnabled && !s.fastCrystalOnlyWhileHolding
+                    && ready(now, lastFastCrystal, s.fastCrystalDelayMs)) {
+                fastCrystal(c);
+                lastFastCrystal = now;
+            }
             return;
         }
-
-        long now = System.currentTimeMillis();
         if (s.fastCrystalEnabled && !s.autoCrystalEnabled && !s.hitCrystalEnabled
                 && ready(now, lastFastCrystal, s.fastCrystalDelayMs)) {
             if (!s.fastCrystalOnlyWhileHolding || useHeld) {
