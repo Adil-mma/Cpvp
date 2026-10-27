@@ -21,6 +21,6 @@ Combat module keybindings are unassigned by default. Assign each one in **Option
 ## Notes
 
 - Combat actions are client-side inputs and remain subject to Minecraft/server validation, interaction reach, inventory contents, and server tick rate.
-- Delay values are milliseconds; a value of `0` still cannot make the server process actions faster than its own limits.
+- Delay settings are shown from 0 to 10 ticks (one tick is approximately 50 ms). A value of `0` still runs at most once per client tick.
 - Anchor automation modules are mutually exclusive to avoid conflicting placement/detonation sequences.
 - The generated build should be tested in a local Minecraft 26.2 instance and on the intended server before relying on it in combat.
