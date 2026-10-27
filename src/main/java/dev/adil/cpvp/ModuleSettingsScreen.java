@@ -6,8 +6,8 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 public final class ModuleSettingsScreen extends Screen {
-    private static final int MAX_BOX_W = 360;
-    private static final int ROW_H = 30;
+    private static final int MAX_BOX_W = 320;
+    private static final int ROW_H = 28;
     private int x, y, boxW, boxH;
 
     public ModuleSettingsScreen(CpvpModule module) {
@@ -84,7 +84,7 @@ public final class ModuleSettingsScreen extends Screen {
 
     private static String ticks(int ms) { return delayTicks(ms) + " / 10 ticks"; }
 
-    private int contentHeight() { return 38 + labels().length * ROW_H + 42; }
+    private int contentHeight() { return 34 + labels().length * ROW_H + 42; }
 
     private void layout() {
         boxW = Math.max(160, Math.min(MAX_BOX_W, width - 20));
@@ -109,7 +109,7 @@ public final class ModuleSettingsScreen extends Screen {
 
         String[] labels = labels();
         for (int i = 0; i < labels.length; i++) {
-            int ry = y + 34 + i * ROW_H;
+            int ry = y + 30 + i * ROW_H;
             boolean hovered = mx >= x + 10 && mx <= x + boxW - 10
                     && my >= ry && my < ry + ROW_H - 2;
             g.fill(x + 10, ry, x + boxW - 10, ry + ROW_H - 2,
@@ -130,7 +130,7 @@ public final class ModuleSettingsScreen extends Screen {
             }
         }
 
-        int footerY = y + 39 + labels.length * ROW_H;
+        int footerY = y + 34 + labels.length * ROW_H;
         g.text(font, Component.literal("Click − / + to adjust. Click ON/OFF to toggle."),
                 x + 14, footerY, 0xFFAEB4C0, false);
         g.text(font, Component.literal("Delay range: 0–10 ticks   •   ESC: back"),
@@ -150,7 +150,7 @@ public final class ModuleSettingsScreen extends Screen {
 
         String[] names = labels();
         for (int row = 0; row < names.length; row++) {
-            int ry = y + 34 + row * ROW_H;
+            int ry = y + 30 + row * ROW_H;
             if (mx < x + 10 || mx > x + boxW - 10 || my < ry || my >= ry + ROW_H - 2) continue;
 
             if (isToggleRow(row)) {
