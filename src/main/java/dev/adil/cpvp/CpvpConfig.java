@@ -56,13 +56,18 @@ public final class CpvpConfig {
 
         public double autoCrystalRange = 4.0;
         public int autoCrystalDelayMs = 100;
+        public boolean autoCrystalStopAboveTarget = true;
 
         public double hitCrystalRange = 4.0;
         public int hitCrystalDelayMs = 25;
+        public boolean hitCrystalStopAboveTarget = true;
 
         public int anchorMacroDelayMs = 100;
+        public int anchorStageDelayMs = 50;
+        public int anchorDetonatorSlot = 0;
         public boolean anchorMacroAutoCharge = true;
 
+        public int safeAnchorDelayMs = 100;
         public double safeAnchorSelfDistance = 5.0;
         public boolean safeAnchorProtectSelf = true;
 
@@ -79,6 +84,9 @@ public final class CpvpConfig {
             hitCrystalRange = clamp(hitCrystalRange, 1.0, 8.0);
             hitCrystalDelayMs = clamp(hitCrystalDelayMs, 0, 500);
             anchorMacroDelayMs = clamp(anchorMacroDelayMs, 0, 1000);
+            anchorStageDelayMs = clamp(anchorStageDelayMs, 0, 1000);
+            anchorDetonatorSlot = clamp(anchorDetonatorSlot, 0, 8);
+            safeAnchorDelayMs = clamp(safeAnchorDelayMs, 0, 1000);
             safeAnchorSelfDistance = clamp(safeAnchorSelfDistance, 2.0, 8.0);
             doubleAnchorDelayMs = clamp(doubleAnchorDelayMs, 0, 500);
             doubleAnchorPasses = clamp(doubleAnchorPasses, 2, 4);
