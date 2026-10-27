@@ -150,7 +150,7 @@ public final class CombatModuleEngine {
         }
         if (System.currentTimeMillis() - lastAnchorStage < s.anchorStageDelayMs) return;
 
-        int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGES);
+        int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
         if (s.anchorMacroAutoCharge && charges < 4) {
             int glowstone = findHotbar(c, Items.GLOWSTONE);
             if (glowstone < 0) return;
@@ -202,7 +202,7 @@ public final class CombatModuleEngine {
         if (pos == null) return;
         if (System.currentTimeMillis() - lastAnchorStage < s.anchorStageDelayMs) return;
 
-        int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGES);
+        int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
         if (charges < 4) {
             int glowstone = findHotbar(c, Items.GLOWSTONE);
             if (glowstone < 0) return;
@@ -296,7 +296,7 @@ public final class CombatModuleEngine {
     }
 
     private static void select(Minecraft c, int slot) {
-        if (slot >= 0 && slot < 9) c.player.getInventory().selected = slot;
+        if (slot >= 0 && slot < 9) c.player.getInventory().setSelectedSlot(slot);
     }
 
     private static void resetSequences() {
