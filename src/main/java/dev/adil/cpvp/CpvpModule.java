@@ -37,6 +37,8 @@ public enum CpvpModule {
             if (this != SAFE_ANCHOR) s.safeAnchorEnabled = false;
             if (this != DOUBLE_ANCHOR) s.doubleAnchorEnabled = false;
         }
+        if (enabled && this == AUTO_CRYSTAL) s.hitCrystalEnabled = false;
+        if (enabled && this == HIT_CRYSTAL) s.autoCrystalEnabled = false;
         switch (this) {
             case FAST_CRYSTAL -> s.fastCrystalEnabled = enabled;
             case AUTO_CRYSTAL -> s.autoCrystalEnabled = enabled;
