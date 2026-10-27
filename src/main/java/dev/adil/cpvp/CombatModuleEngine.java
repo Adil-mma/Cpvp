@@ -7,6 +7,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RespawnAnchorBlock;
@@ -136,12 +137,10 @@ public final class CombatModuleEngine {
     }
 
     private static void anchorMacro(Minecraft c, CpvpConfig.Settings s) {
-        BlockPos pos = lookedAtAnchor(c);
-        if (pos == null) {
-            anchorSequencePos = null;
-            anchorSequenceStage = 0;
-            return;
-        }
+        BlockHitResult aimed = blockHit(c);
+        if (aimed == null) return;
+        BlockPos pos = findAnchorOrPlace(c, aimed);
+        if (pos == null) return;
         if (!pos.equals(anchorSequencePos)) {
             anchorSequencePos = pos.immutable();
             anchorSequenceStage = 0;
@@ -157,9 +156,7 @@ public final class CombatModuleEngine {
             lastAnchorStage = System.currentTimeMillis();
             return;
         }
-        int detonator = s.anchorDetonatorSlot;
-        if (detonator < 0 || detonator > 8) detonator = c.player.getInventory().selected;
-        select(c, detonator);
+        select(c, s.anchorDetonatorSlot);
         c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
         lastAnchorStage = System.currentTimeMillis();
         anchorSequenceStage++;
@@ -168,24 +165,40 @@ public final class CombatModuleEngine {
     private static void safeAnchor(Minecraft c, CpvpConfig.Settings s) {
         BlockPos pos = lookedAtAnchor(c);
         if (pos == null) return;
-        if (s.safeAnchorProtectSelf && c.player.distanceToSqr(Vec3.atCenterOf(pos))
-                < s.safeAnchorSelfDistance * s.safeAnchorSelfDistance) {
-            // Do not detonate when no verified protective placement can be made.
-            // A solid block is only considered protective if one already separates the player and anchor.
-            if (!hasSolidCoverBetween(c, c.player.blockPosition(), pos)) return;
-        }
-        int detonator = s.anchorDetonatorSlot;
-        if (detonator >= 0 && detonator <= 8) select(c, detonator);
-        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
-    }
-
-    private static void doubleAnchor(Minecraft c, CpvpConfig.Settings s) {
-        BlockPos pos = lookedAtAnchor(c);
-        if (pos == null) {
-            doubleAnchorPass = 0;
+        if (s.safeAnchorProtectSelf && !hasSolidCoverBetween(c, c.player.blockPosition(), pos)) {
+            BlockPos cover = coverPosition(c.player.blockPosition(), pos);
+            if (cover != null && c.level.getBlockState(cover).isAir()
+                    && c.level.getBlockState(cover.below()).isSolid()) {
+                int blockSlot = findSolidBlock(c);
+                if (blockSlot >= 0) {
+                    select(c, blockSlot);
+                    BlockPos support = cover.below();
+                    BlockHitResult placeHit = new BlockHitResult(
+                            Vec3.atCenterOf(support).add(0, 0.5, 0),
+                            Direction.UP, support, false);
+                    c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
+                    return;
+                }
+            }
+            // Never detonate if the protection block could not be placed and verified.
             return;
         }
         if (System.currentTimeMillis() - lastAnchorStage < s.anchorStageDelayMs) return;
+        select(c, s.anchorDetonatorSlot);
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
+        lastAnchorStage = System.currentTimeMillis();
+    }
+
+    private static void doubleAnchor(Minecraft c, CpvpConfig.Settings s) {
+        BlockHitResult aimed = blockHit(c);
+        if (aimed == null) {
+            doubleAnchorPass = 0;
+            return;
+        }
+        BlockPos pos = findAnchorOrPlace(c, aimed);
+        if (pos == null) return;
+        if (System.currentTimeMillis() - lastAnchorStage < s.anchorStageDelayMs) return;
+
         int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGES);
         if (charges < 4) {
             int glowstone = findHotbar(c, Items.GLOWSTONE);
@@ -193,13 +206,46 @@ public final class CombatModuleEngine {
             select(c, glowstone);
             c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
         } else {
-            int detonator = s.anchorDetonatorSlot;
-            if (detonator >= 0 && detonator <= 8) select(c, detonator);
+            select(c, s.anchorDetonatorSlot);
             c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
             doubleAnchorPass++;
-            if (doubleAnchorPass >= 2) doubleAnchorPass = 0;
+            if (doubleAnchorPass >= s.doubleAnchorPasses) doubleAnchorPass = 0;
+            // After the anchor is detonated, the next held-use tick can place a fresh one
+            // at the same adjacent position. Server state is re-checked before each pass.
+            anchorSequencePos = pos.immutable();
         }
         lastAnchorStage = System.currentTimeMillis();
+    }
+
+    private static BlockPos findAnchorOrPlace(Minecraft c, BlockHitResult aimed) {
+        BlockPos aimedPos = aimed.getBlockPos();
+        if (c.level.getBlockState(aimedPos).is(Blocks.RESPAWN_ANCHOR)) return aimedPos;
+        BlockPos placePos = aimedPos.relative(aimed.getDirection());
+        if (c.level.getBlockState(placePos).is(Blocks.RESPAWN_ANCHOR)) return placePos;
+        int anchorSlot = findHotbar(c, Items.RESPAWN_ANCHOR);
+        if (anchorSlot < 0 || !c.level.getBlockState(placePos).canBeReplaced()) return null;
+        select(c, anchorSlot);
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, aimed);
+        return null;
+    }
+
+    private static BlockPos coverPosition(BlockPos player, BlockPos anchor) {
+        int dx = anchor.getX() - player.getX();
+        int dy = anchor.getY() - player.getY();
+        int dz = anchor.getZ() - player.getZ();
+        if (Math.abs(dx) >= Math.abs(dz)) {
+            return new BlockPos(player.getX() + Integer.signum(dx), player.getY(), player.getZ());
+        }
+        return new BlockPos(player.getX(), player.getY(), player.getZ() + Integer.signum(dz));
+    }
+
+    private static int findSolidBlock(Minecraft c) {
+        for (int i = 0; i < 9; i++) {
+            Item item = c.player.getInventory().getItem(i).getItem();
+            if (item instanceof BlockItem blockItem
+                    && blockItem.getBlock().defaultBlockState().isSolid()) return i;
+        }
+        return -1;
     }
 
     private static boolean hasSolidCoverBetween(Minecraft c, BlockPos player, BlockPos anchor) {
