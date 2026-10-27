@@ -38,8 +38,10 @@ public final class CpvpScreen extends Screen {
         };
         drawPanel(g, leftX, topY, "CRISTAL AURA", crystals, mx, my);
         drawPanel(g, rightX, topY, "ANCHOR AURA", anchors, mx, my);
-        g.text(font, Component.literal("LEFT CLICK: toggle     RIGHT CLICK: settings"), leftX + 2,
-                topY + HEADER_H + ROW_H * 4 + 12, 0xFFB7BBC4, false);
+        g.text(font, Component.literal("ON = active     CFG = settings only     OFF = disabled"),
+                leftX + 2, topY + HEADER_H + ROW_H * 4 + 12, 0xFFB7BBC4, false);
+        g.text(font, Component.literal("LEFT CLICK: toggle     RIGHT CLICK: settings"),
+                leftX + 2, topY + HEADER_H + ROW_H * 4 + 24, 0xFF999FAC, false);
         super.extractRenderState(g, mx, my, pt);
     }
 
@@ -61,14 +63,17 @@ public final class CpvpScreen extends Screen {
             boolean hovered = mx >= x + 10 && mx <= x + PANEL_W - 10
                     && my >= ry && my < ry + ROW_H - 3;
             boolean enabled = module.enabled(s);
+            boolean running = module == CpvpModule.AUTO_TOTEM && enabled;
             int bg = hovered ? 0xFF242833 : 0xE908090B;
+            int accent = !enabled ? 0xFF30343D : running ? 0xFF3E7B58 : 0xFF8C6B36;
             g.fill(x + 10, ry, x + PANEL_W - 10, ry + ROW_H - 4, bg);
-            g.outline(x + 10, ry, PANEL_W - 20, ROW_H - 4, enabled ? 0xFF3E7B58 : 0xFF20232A);
-            if (enabled) g.fill(x + 10, ry + 2, x + 13, ry + ROW_H - 6, 0xFF5CDB8C);
+            g.outline(x + 10, ry, PANEL_W - 20, ROW_H - 4, accent);
+            if (enabled) g.fill(x + 10, ry + 2, x + 13, ry + ROW_H - 6,
+                    running ? 0xFF5CDB8C : 0xFFE0B45D);
             g.text(font, Component.literal(module.title), x + 22, ry + 9,
-                    enabled ? 0xFFE7F9EC : 0xFFD8CCBA, false);
-            String state = enabled ? "ON" : "OFF";
-            int stateColor = enabled ? 0xFF63E49A : 0xFF858B96;
+                    enabled && running ? 0xFFE7F9EC : 0xFFD8CCBA, false);
+            String state = !enabled ? "OFF" : running ? "ON" : "CFG";
+            int stateColor = !enabled ? 0xFF858B96 : running ? 0xFF63E49A : 0xFFE0B45D;
             g.text(font, Component.literal(state), x + PANEL_W - 48, ry + 9, stateColor, true);
         }
     }

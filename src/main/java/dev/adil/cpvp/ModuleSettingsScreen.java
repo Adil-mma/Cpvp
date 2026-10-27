@@ -80,8 +80,12 @@ public final class ModuleSettingsScreen extends Screen {
             g.text(font, Component.literal(labels[i]), x + 26, ry + 12, 0xFFE0D6C9, false);
             g.text(font, Component.literal("‹  ›"), x + BOX_W - 44, ry + 12, 0xFF97AFFF, false);
         }
+        g.text(font, Component.literal(module == CpvpModule.AUTO_TOTEM
+                        ? "Auto Totem supports Auto and Manual modes."
+                        : "Settings only: this module's game actions are not included."),
+                x + 16, y + 128, module == CpvpModule.AUTO_TOTEM ? 0xFF8ADBA4 : 0xFFE0B45D, false);
         g.text(font, Component.literal("Left click: increase / toggle    Right click: decrease"),
-                x + 16, y + 128, 0xFFAEB4C0, false);
+                x + 16, y + 150, 0xFFAEB4C0, false);
         g.text(font, Component.literal("ESC / Done"), x + 16, y + 203, 0xFFB9BEC8, false);
         super.extractRenderState(g, mx, my, pt);
     }
