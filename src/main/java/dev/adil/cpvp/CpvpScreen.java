@@ -2,6 +2,7 @@ package dev.adil.cpvp;
 
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 public final class CpvpScreen extends Screen {
@@ -79,7 +80,10 @@ public final class CpvpScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(double mx, double my, int button) {
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        double mx = event.x();
+        double my = event.y();
+        int button = event.button();
         CpvpModule module = moduleAt(mx, my);
         if (module != null) {
             if (button == 0) {
@@ -98,7 +102,7 @@ public final class CpvpScreen extends Screen {
                 return true;
             }
         }
-        return super.mouseClicked(mx, my, button);
+        return super.mouseClicked(event, doubleClick);
     }
 
     private CpvpModule moduleAt(double mx, double my) {
