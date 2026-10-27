@@ -6,14 +6,7 @@ Minecraft 26.2 client-side Fabric mod.
 
 - `9`: open the two-panel Crystal / Anchor GUI.
 - `L`: toggle Auto Totem.
-- `F6`: toggle Fast Crystal.
-- `F7`: toggle Auto Crystal.
-- `F8`: toggle Hit Crystal.
-- `F9`: toggle Anchor Macro.
-- `F10`: toggle Safe Anchor.
-- `F11`: toggle Double Anchor.
-
-All keybindings can be changed in Minecraft's Controls menu. In the GUI, left-click a module to toggle it and right-click to edit its settings. Enabled modules show `ON`.
+Combat module keybindings are unassigned by default. Assign each one in **Options → Controls → Key Binds → Cpvp**. Menu and Auto Totem also remain rebindable there. In the GUI, left-click a module to toggle it and right-click to edit its settings. Enabled modules show `ON`.
 
 ## Module behavior
 
