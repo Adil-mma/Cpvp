@@ -95,7 +95,7 @@ public final class CombatModuleEngine {
     private static void autoCrystal(Minecraft c, CpvpConfig.Settings s) {
         BlockHitResult hit = blockHit(c);
         if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return;
-        if (s.autoCrystalStopAboveTarget && c.player.getY() > hit.getBlockPos().getY() + 1.0) return;
+        if (s.autoCrystalStopAboveTarget && c.player.blockPosition().getY() > hit.getBlockPos().getY()) return;
         if (c.player.distanceToSqr(Vec3.atCenterOf(hit.getBlockPos())) > s.autoCrystalRange * s.autoCrystalRange) return;
 
         int crystalSlot = findHotbar(c, Items.END_CRYSTAL);
@@ -111,7 +111,7 @@ public final class CombatModuleEngine {
         HitResult hit = c.hitResult;
         if (s.hitCrystalStopAboveTarget && hit instanceof EntityHitResult eh
                 && eh.getEntity() instanceof EndCrystal crystal
-                && c.player.getY() > crystal.getY() + 1.0) return;
+                && c.player.blockPosition().getY() > crystal.blockPosition().getY()) return;
         if (hit instanceof EntityHitResult eh && eh.getEntity() instanceof EndCrystal crystal) {
             if (c.player.distanceToSqr(crystal) <= s.hitCrystalRange * s.hitCrystalRange) {
                 c.gameMode.attack(c.player, crystal);
