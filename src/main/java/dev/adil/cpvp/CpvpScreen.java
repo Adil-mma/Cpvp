@@ -6,10 +6,10 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 public final class CpvpScreen extends Screen {
-    private static final int ROW_H = 28;
-    private static final int HEADER_H = 32;
-    private static final int MAX_PANEL_W = 320;
-    private static final int GAP = 10;
+    private static final int ROW_H = 26;
+    private static final int HEADER_H = 30;
+    private static final int MAX_PANEL_W = 280;
+    private static final int GAP = 8;
     private int leftX, rightX, topY, panelW;
 
     public CpvpScreen() { super(Component.literal("Cpvp")); }
@@ -18,11 +18,10 @@ public final class CpvpScreen extends Screen {
         return Math.max(140, Math.min(MAX_PANEL_W, (width - 24 - GAP) / 2));
     }
 
-    private int panelHeight(int rows) { return HEADER_H + rows * ROW_H + 10; }
+    private int panelHeight(int rows) { return HEADER_H + rows * ROW_H + 8; }
 
     private int calculatedTopY() {
-        int contentH = panelHeight(4) + 34;
-        return Math.max(8, (height - contentH) / 2);
+        return Math.max(8, (height - panelHeight(4)) / 2);
     }
 
     private void layout() {
@@ -50,11 +49,6 @@ public final class CpvpScreen extends Screen {
         drawPanel(g, leftX, topY, "CRISTAL AURA", crystals, mx, my);
         drawPanel(g, rightX, topY, "ANCHOR AURA", anchors, mx, my);
 
-        int footerY = topY + panelHeight(4) + 4;
-        g.text(font, Component.literal("ON = enabled   OFF = disabled"),
-                leftX + 2, footerY, 0xFFB7BBC4, false);
-        g.text(font, Component.literal("LEFT CLICK: toggle   RIGHT CLICK: settings"),
-                leftX + 2, footerY + 12, 0xFF999FAC, false);
         super.extractRenderState(g, mx, my, pt);
     }
 
@@ -65,27 +59,27 @@ public final class CpvpScreen extends Screen {
         g.outline(x, y, panelW, h, 0xFF434751);
         g.fill(x + 1, y + 1, x + panelW / 2, y + 3, 0xFF55D7F5);
         g.fill(x + panelW / 2, y + 1, x + panelW - 1, y + 3, 0xFFB56BFF);
-        g.fill(x + 8, y + 6, x + panelW - 8, y + HEADER_H - 2, 0xD80A0D12);
-        g.outline(x + 8, y + 6, panelW - 16, HEADER_H - 8, 0xFF323743);
-        g.text(font, Component.literal(title), x + 16, y + 15, 0xFF93AEFF, true);
+        g.fill(x + 7, y + 5, x + panelW - 7, y + HEADER_H - 2, 0xD80A0D12);
+        g.outline(x + 7, y + 5, panelW - 14, HEADER_H - 7, 0xFF323743);
+        g.text(font, Component.literal(title), x + 12, y + 14, 0xFF93AEFF, true);
 
         CpvpConfig.Settings s = CpvpConfig.settings();
         for (int i = 0; i < modules.length; i++) {
             CpvpModule module = modules[i];
             int ry = y + HEADER_H + i * ROW_H;
-            boolean hovered = mx >= x + 8 && mx <= x + panelW - 8
+            boolean hovered = mx >= x + 7 && mx <= x + panelW - 7
                     && my >= ry && my < ry + ROW_H - 2;
             boolean enabled = module.enabled(s);
             int bg = hovered ? 0xFF242833 : 0xE908090B;
             int accent = enabled ? 0xFF3E7B58 : 0xFF30343D;
-            g.fill(x + 8, ry, x + panelW - 8, ry + ROW_H - 2, bg);
-            g.outline(x + 8, ry, panelW - 16, ROW_H - 2, accent);
-            if (enabled) g.fill(x + 8, ry + 2, x + 11, ry + ROW_H - 4, 0xFF5CDB8C);
-            g.text(font, Component.literal(module.title), x + 16, ry + 8,
+            g.fill(x + 7, ry, x + panelW - 7, ry + ROW_H - 2, bg);
+            g.outline(x + 7, ry, panelW - 14, ROW_H - 2, accent);
+            if (enabled) g.fill(x + 7, ry + 2, x + 10, ry + ROW_H - 4, 0xFF5CDB8C);
+            g.text(font, Component.literal(module.title), x + 12, ry + 7,
                     enabled ? 0xFFE7F9EC : 0xFFD8CCBA, false);
             String state = enabled ? "ON" : "OFF";
             int stateColor = enabled ? 0xFF63E49A : 0xFF858B96;
-            g.text(font, Component.literal(state), x + panelW - 35, ry + 8, stateColor, true);
+            g.text(font, Component.literal(state), x + panelW - 33, ry + 7, stateColor, true);
         }
     }
 
@@ -130,7 +124,7 @@ public final class CpvpScreen extends Screen {
     private CpvpModule rowAt(double mx, double my, int x, CpvpModule[] modules) {
         for (int i = 0; i < modules.length; i++) {
             int y = topY + HEADER_H + i * ROW_H;
-            if (mx >= x + 8 && mx <= x + panelW - 8 && my >= y && my < y + ROW_H - 2) {
+            if (mx >= x + 7 && mx <= x + panelW - 7 && my >= y && my < y + ROW_H - 2) {
                 return modules[i];
             }
         }
