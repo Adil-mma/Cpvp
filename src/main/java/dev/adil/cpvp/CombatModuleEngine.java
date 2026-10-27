@@ -64,7 +64,7 @@ public final class CombatModuleEngine {
             autoCrystal(c, s);
             lastAutoCrystal = now;
         }
-        if (s.hitCrystalEnabled && ready(now, lastHitCrystal, s.hitCrystalDelayMs)) {
+        else if (s.hitCrystalEnabled && ready(now, lastHitCrystal, s.hitCrystalDelayMs)) {
             hitCrystal(c, s);
             lastHitCrystal = now;
         }
