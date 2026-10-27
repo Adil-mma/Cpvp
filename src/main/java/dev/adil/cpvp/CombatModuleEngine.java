@@ -65,17 +65,17 @@ public final class CombatModuleEngine {
             hitCrystal(c, s);
             lastHitCrystal = now;
         }
-        if (s.anchorMacroEnabled && ready(now, lastAnchorMacro, s.anchorMacroDelayMs)) {
-            anchorMacro(c, s);
-            lastAnchorMacro = now;
-        }
+        // Anchor automation modes are mutually exclusive; safety mode has priority
+        // if an older config file contains more than one enabled anchor module.
         if (s.safeAnchorEnabled && ready(now, lastSafeAnchor, s.safeAnchorDelayMs)) {
             safeAnchor(c, s);
             lastSafeAnchor = now;
-        }
-        if (s.doubleAnchorEnabled && ready(now, lastDoubleAnchor, s.doubleAnchorDelayMs)) {
+        } else if (s.doubleAnchorEnabled && ready(now, lastDoubleAnchor, s.doubleAnchorDelayMs)) {
             doubleAnchor(c, s);
             lastDoubleAnchor = now;
+        } else if (s.anchorMacroEnabled && ready(now, lastAnchorMacro, s.anchorMacroDelayMs)) {
+            anchorMacro(c, s);
+            lastAnchorMacro = now;
         }
     }
 
