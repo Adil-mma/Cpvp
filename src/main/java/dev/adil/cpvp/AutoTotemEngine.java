@@ -36,27 +36,31 @@ public final class AutoTotemEngine {
     private static void tickManual(Minecraft c) {
         if (!(c.gui.screen() instanceof InventoryScreen)) return;
         var p = c.player;
-        if (p == null || !p.inventoryMenu.getCarried().isEmpty() || cooldown > 0) {
+        if (p == null || cooldown > 0) {
             if (cooldown > 0) cooldown--;
             return;
         }
+        // Manual mode should equip the hovered totem directly into the offhand.
+        // PICKUP alone leaves the stack attached to the cursor and can strand it there.
+        if (!p.getOffhandItem().is(Items.TOTEM_OF_UNDYING)) {
+            var window = c.getWindow();
+            double mouseX = c.mouseHandler.xpos() * window.getGuiScaledWidth() / (double) window.getScreenWidth();
+            double mouseY = c.mouseHandler.ypos() * window.getGuiScaledHeight() / (double) window.getScreenHeight();
+            int left = (window.getGuiScaledWidth() - 176) / 2;
+            int top = (window.getGuiScaledHeight() - 166) / 2;
 
-        var window = c.getWindow();
-        double mouseX = c.mouseHandler.xpos() * window.getGuiScaledWidth() / (double) window.getScreenWidth();
-        double mouseY = c.mouseHandler.ypos() * window.getGuiScaledHeight() / (double) window.getScreenHeight();
-        int left = (window.getGuiScaledWidth() - 176) / 2;
-        int top = (window.getGuiScaledHeight() - 166) / 2;
-
-        for (int slotId = 9; slotId <= 44 && slotId < p.inventoryMenu.slots.size(); slotId++) {
-            Slot slot = p.inventoryMenu.slots.get(slotId);
-            if (!slot.getItem().is(Items.TOTEM_OF_UNDYING)) continue;
-            int sx = left + slot.x;
-            int sy = top + slot.y;
-            if (mouseX >= sx && mouseX < sx + 16 && mouseY >= sy && mouseY < sy + 16) {
-                c.gameMode.handleContainerInput(p.inventoryMenu.containerId, slotId, 0,
-                        ContainerInput.PICKUP, p);
-                cooldown = 4;
-                return;
+            for (int slotId = 9; slotId <= 44 && slotId < p.inventoryMenu.slots.size(); slotId++) {
+                Slot slot = p.inventoryMenu.slots.get(slotId);
+                if (!slot.getItem().is(Items.TOTEM_OF_UNDYING)) continue;
+                int sx = left + slot.x;
+                int sy = top + slot.y;
+                if (mouseX >= sx && mouseX < sx + 16 && mouseY >= sy && mouseY < sy + 16) {
+                    c.gameMode.handleContainerInput(p.inventoryMenu.containerId, slotId,
+                            net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND,
+                            ContainerInput.SWAP, p);
+                    cooldown = 4;
+                    return;
+                }
             }
         }
     }
