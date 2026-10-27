@@ -32,6 +32,11 @@ public enum CpvpModule {
     }
 
     public void setEnabled(CpvpConfig.Settings s, boolean enabled) {
+        if (enabled && group == Group.ANCHOR) {
+            if (this != ANCHOR_MACRO) s.anchorMacroEnabled = false;
+            if (this != SAFE_ANCHOR) s.safeAnchorEnabled = false;
+            if (this != DOUBLE_ANCHOR) s.doubleAnchorEnabled = false;
+        }
         switch (this) {
             case FAST_CRYSTAL -> s.fastCrystalEnabled = enabled;
             case AUTO_CRYSTAL -> s.autoCrystalEnabled = enabled;
