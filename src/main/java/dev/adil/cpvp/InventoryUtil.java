@@ -13,12 +13,14 @@ public final class InventoryUtil {
         if (c.player == null || c.gameMode == null || target < 0 || target > 8) return false;
         LocalPlayer p = c.player;
         if (p.containerMenu != p.inventoryMenu) return false;
-        if (p.getInventory().getItem(target).is(item)) return true;
         int targetMenuSlot = 36 + target;
-        for (Slot slot : p.inventoryMenu.slots) {
-            if (slot.index < 9 || slot.index > 44 || slot.index == targetMenuSlot) continue;
+        if (p.inventoryMenu.slots.get(targetMenuSlot).getItem().is(item)) return true;
+
+        for (int slotId = 9; slotId <= 44 && slotId < p.inventoryMenu.slots.size(); slotId++) {
+            if (slotId == targetMenuSlot) continue;
+            Slot slot = p.inventoryMenu.slots.get(slotId);
             if (slot.getItem().is(item)) {
-                c.gameMode.handleContainerInput(p.inventoryMenu.containerId, slot.index, target,
+                c.gameMode.handleContainerInput(p.inventoryMenu.containerId, slotId, target,
                         ContainerInput.SWAP, p);
                 return true;
             }
@@ -30,10 +32,10 @@ public final class InventoryUtil {
         if (c.player == null || c.gameMode == null) return false;
         LocalPlayer p = c.player;
         if (p.containerMenu != p.inventoryMenu) return false;
-        for (Slot slot : p.inventoryMenu.slots) {
-            if (slot.index < 9 || slot.index > 44) continue;
+        for (int slotId = 9; slotId <= 44 && slotId < p.inventoryMenu.slots.size(); slotId++) {
+            Slot slot = p.inventoryMenu.slots.get(slotId);
             if (slot.getItem().is(item)) {
-                c.gameMode.handleContainerInput(p.inventoryMenu.containerId, slot.index,
+                c.gameMode.handleContainerInput(p.inventoryMenu.containerId, slotId,
                         net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND, ContainerInput.SWAP, p);
                 return true;
             }

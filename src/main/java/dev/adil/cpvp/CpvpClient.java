@@ -32,7 +32,8 @@ public final class CpvpClient implements ClientModInitializer {
                 settings.autoTotemEnabled = !settings.autoTotemEnabled;
                 CpvpConfig.save();
                 if (c.player != null) c.player.sendSystemMessage(Component.literal(
-                        "[Cpvp] Auto Totem: " + (settings.autoTotemEnabled ? "ON" : "OFF")));
+                        "[Cpvp] Auto Totem: " + (settings.autoTotemEnabled ? "ON" : "OFF")
+                                + " (" + settings.autoTotemMode + ")"));
             }
             if (c.player != null && c.level != null && c.gameMode != null) {
                 AutoTotemEngine.tick(c);

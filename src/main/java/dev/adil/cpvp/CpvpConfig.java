@@ -13,6 +13,7 @@ public final class CpvpConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("cpvp.json");
     private static Settings settings = new Settings();
+
     private CpvpConfig() {}
     public static Settings settings() { return settings; }
 
@@ -39,8 +40,54 @@ public final class CpvpConfig {
     }
 
     public static final class Settings {
+        public boolean fastCrystalEnabled;
+        public boolean autoCrystalEnabled;
+        public boolean hitCrystalEnabled;
         public boolean autoTotemEnabled;
+        public boolean anchorMacroEnabled;
+        public boolean safeAnchorEnabled;
+        public boolean doubleAnchorEnabled;
+
+        public String autoTotemMode = "AUTO";
         public int totemBackupSlot = 8;
-        void sanitize() { totemBackupSlot = Math.max(0, Math.min(8, totemBackupSlot)); }
+
+        public int fastCrystalDelayMs = 50;
+        public boolean fastCrystalOnlyWhileHolding = true;
+
+        public double autoCrystalRange = 4.0;
+        public int autoCrystalDelayMs = 100;
+
+        public double hitCrystalRange = 4.0;
+        public int hitCrystalDelayMs = 25;
+
+        public int anchorMacroDelayMs = 100;
+        public boolean anchorMacroAutoCharge = true;
+
+        public double safeAnchorSelfDistance = 5.0;
+        public boolean safeAnchorProtectSelf = true;
+
+        public int doubleAnchorDelayMs = 100;
+        public int doubleAnchorPasses = 2;
+
+        void sanitize() {
+            if (autoTotemMode == null) autoTotemMode = "AUTO";
+            autoTotemMode = autoTotemMode.equalsIgnoreCase("MANUAL") ? "MANUAL" : "AUTO";
+            totemBackupSlot = clamp(totemBackupSlot, 0, 8);
+            fastCrystalDelayMs = clamp(fastCrystalDelayMs, 0, 500);
+            autoCrystalRange = clamp(autoCrystalRange, 1.0, 6.0);
+            autoCrystalDelayMs = clamp(autoCrystalDelayMs, 0, 1000);
+            hitCrystalRange = clamp(hitCrystalRange, 1.0, 8.0);
+            hitCrystalDelayMs = clamp(hitCrystalDelayMs, 0, 500);
+            anchorMacroDelayMs = clamp(anchorMacroDelayMs, 0, 1000);
+            safeAnchorSelfDistance = clamp(safeAnchorSelfDistance, 2.0, 8.0);
+            doubleAnchorDelayMs = clamp(doubleAnchorDelayMs, 0, 500);
+            doubleAnchorPasses = clamp(doubleAnchorPasses, 2, 4);
+        }
+
+        private static int clamp(int v, int min, int max) { return Math.max(min, Math.min(max, v)); }
+        private static double clamp(double v, double min, double max) {
+            if (!Double.isFinite(v)) return min;
+            return Math.max(min, Math.min(max, v));
+        }
     }
 }
