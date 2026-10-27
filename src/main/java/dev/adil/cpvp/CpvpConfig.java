@@ -80,13 +80,13 @@ public final class CpvpConfig {
             totemBackupSlot = clamp(totemBackupSlot, 0, 8);
             fastCrystalDelayMs = clamp(fastCrystalDelayMs, 0, 500);
             autoCrystalRange = clamp(autoCrystalRange, 1.0, 6.0);
-            autoCrystalDelayMs = clamp(autoCrystalDelayMs, 0, 1000);
+            autoCrystalDelayMs = clamp(autoCrystalDelayMs, 0, 500);
             hitCrystalRange = clamp(hitCrystalRange, 1.0, 8.0);
             hitCrystalDelayMs = clamp(hitCrystalDelayMs, 0, 500);
-            anchorMacroDelayMs = clamp(anchorMacroDelayMs, 0, 1000);
-            anchorStageDelayMs = clamp(anchorStageDelayMs, 0, 1000);
+            anchorMacroDelayMs = clamp(anchorMacroDelayMs, 0, 500);
+            anchorStageDelayMs = clamp(anchorStageDelayMs, 0, 500);
             anchorDetonatorSlot = clamp(anchorDetonatorSlot, 0, 8);
-            safeAnchorDelayMs = clamp(safeAnchorDelayMs, 0, 1000);
+            safeAnchorDelayMs = clamp(safeAnchorDelayMs, 0, 500);
             safeAnchorSelfDistance = clamp(safeAnchorSelfDistance, 2.0, 8.0);
             doubleAnchorDelayMs = clamp(doubleAnchorDelayMs, 0, 500);
             doubleAnchorPasses = clamp(doubleAnchorPasses, 2, 4);
