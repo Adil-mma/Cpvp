@@ -1,5 +1,9 @@
 # GUI and Auto Totem
 
-The main Cpvp screen is opened with `9`. Left-click module rows to toggle saved state; right-click to open settings. Auto Totem supports `AUTO` and `MANUAL` modes and stores settings in `config/cpvp.json`.
+The main Cpvp screen opens with `9`. Left-click a module row to toggle its saved state; right-click to open that module's settings panel. The two main panels are Crystal and Anchor.
 
-The Crystal and Anchor modules currently expose GUI/configuration only; their automated combat actions are not implemented in this branch.
+Auto Totem can be toggled with `L` or from the GUI. Its settings are stored in `config/cpvp.json`:
+- `AUTO`: automatically moves a totem into the offhand when needed and maintains the configured backup hotbar slot.
+- `MANUAL`: while the player inventory is open, hovering the cursor over a totem picks it up to the cursor.
+
+The Crystal and Anchor entries expose separate configuration screens, but automated combat actions for those entries are not implemented in this branch; their status is shown as configuration-only rather than active.
