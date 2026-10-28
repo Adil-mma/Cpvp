@@ -45,45 +45,56 @@ public final class CombatModuleEngine {
         if (!useHeld) {
             resetSequences();
             if (s.fastCrystalEnabled && !s.fastCrystalOnlyWhileHolding
-                    && ready(now, lastFastCrystal, s.fastCrystalDelayMs)) {
+                    && ready(now, lastFastCrystal, s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks)) {
                 fastCrystal(c);
                 lastFastCrystal = now;
             }
             return;
         }
         if (s.fastCrystalEnabled && !s.autoCrystalEnabled && !s.hitCrystalEnabled
-                && ready(now, lastFastCrystal, s.fastCrystalDelayMs)) {
+                && ready(now, lastFastCrystal, s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks)) {
             if (!s.fastCrystalOnlyWhileHolding || useHeld) {
                 fastCrystal(c);
                 lastFastCrystal = now;
             }
         }
-        int autoDelay = s.fastCrystalEnabled
-                ? Math.min(s.autoCrystalDelayMs, s.fastCrystalDelayMs) : s.autoCrystalDelayMs;
-        if (s.autoCrystalEnabled && ready(now, lastAutoCrystal, autoDelay)) {
+        int autoMinDelay = s.autoCrystalMinDelayTicks;
+        int autoMaxDelay = s.autoCrystalMaxDelayTicks;
+        if (s.fastCrystalEnabled) {
+            autoMinDelay = Math.min(autoMinDelay, s.fastCrystalMinDelayTicks);
+            autoMaxDelay = Math.min(autoMaxDelay, s.fastCrystalMaxDelayTicks);
+            if (autoMinDelay > autoMaxDelay) autoMinDelay = autoMaxDelay;
+        }
+        if (s.autoCrystalEnabled && ready(now, lastAutoCrystal, autoMinDelay, autoMaxDelay)) {
             autoCrystal(c, s);
             lastAutoCrystal = now;
         }
-        else if (s.hitCrystalEnabled && ready(now, lastHitCrystal, s.hitCrystalDelayMs)) {
+        else if (s.hitCrystalEnabled && ready(now, lastHitCrystal, s.hitCrystalMinDelayTicks, s.hitCrystalMaxDelayTicks)) {
             hitCrystal(c, s);
             lastHitCrystal = now;
         }
         // Anchor automation modes are mutually exclusive; safety mode has priority
         // if an older config file contains more than one enabled anchor module.
-        if (s.safeAnchorEnabled && ready(now, lastSafeAnchor, s.safeAnchorDelayMs)) {
+        if (s.safeAnchorEnabled && ready(now, lastSafeAnchor, s.safeAnchorMinDelayTicks, s.safeAnchorMaxDelayTicks)) {
             safeAnchor(c, s);
             lastSafeAnchor = now;
-        } else if (s.doubleAnchorEnabled && ready(now, lastDoubleAnchor, s.doubleAnchorDelayMs)) {
+        } else if (s.doubleAnchorEnabled && ready(now, lastDoubleAnchor, s.doubleAnchorMinDelayTicks, s.doubleAnchorMaxDelayTicks)) {
             doubleAnchor(c, s);
             lastDoubleAnchor = now;
-        } else if (s.anchorMacroEnabled && ready(now, lastAnchorMacro, s.anchorMacroDelayMs)) {
+        } else if (s.anchorMacroEnabled && ready(now, lastAnchorMacro, s.anchorMacroMinDelayTicks, s.anchorMacroMaxDelayTicks)) {
             anchorMacro(c, s);
             lastAnchorMacro = now;
         }
     }
 
-    private static boolean ready(long now, long last, int delayMs) {
-        return now - last >= Math.max(0, delayMs);
+    private static int delayMs(int minTicks, int maxTicks) {
+        int min = Math.max(0, Math.min(5, minTicks));
+        int max = Math.max(min, Math.min(5, maxTicks));
+        return java.util.concurrent.ThreadLocalRandom.current().nextInt(min, max + 1) * 50;
+    }
+
+    private static boolean ready(long now, long last, int minTicks, int maxTicks) {
+        return now - last >= delayMs(minTicks, maxTicks);
     }
 
     private static void fastCrystal(Minecraft c) {
@@ -96,6 +107,20 @@ public final class CombatModuleEngine {
     }
 
     private static void autoCrystal(Minecraft c, CpvpConfig.Settings s) {
+        if (c.hitResult instanceof EntityHitResult entityHit
+                && entityHit.getEntity() instanceof EndCrystal crystal) {
+            if (s.autoCrystalStopAboveTarget && c.player.blockPosition().getY() > crystal.blockPosition().getY()) return;
+            if (c.player.distanceToSqr(crystal) <= s.autoCrystalRange * s.autoCrystalRange) {
+                c.gameMode.attack(c.player, crystal);
+                c.player.swing(InteractionHand.MAIN_HAND);
+            }
+            return;
+        }
+
+        // Once placed, an End Crystal becomes the crosshair entity. Attack it before
+        // requiring the raycast to continue pointing at the obsidian/bedrock base.
+        if (attackNearbyCrystals(c, s.autoCrystalRange)) return;
+
         BlockHitResult hit = blockHit(c);
         if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return;
         if (s.autoCrystalStopAboveTarget && c.player.blockPosition().getY() > hit.getBlockPos().getY()) return;
@@ -106,8 +131,6 @@ public final class CombatModuleEngine {
             select(c, crystalSlot);
             c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
         }
-
-        attackNearbyCrystals(c, s.autoCrystalRange);
     }
 
     private static void hitCrystal(Minecraft c, CpvpConfig.Settings s) {
@@ -128,15 +151,16 @@ public final class CombatModuleEngine {
         attackNearbyCrystals(c, s.hitCrystalRange);
     }
 
-    private static void attackNearbyCrystals(Minecraft c, double range) {
+    private static boolean attackNearbyCrystals(Minecraft c, double range) {
         AABB box = c.player.getBoundingBox().inflate(range);
         List<EndCrystal> crystals = c.level.getEntitiesOfClass(EndCrystal.class, box,
                 e -> e.isAlive() && c.player.distanceToSqr(e) <= range * range);
         for (EndCrystal crystal : crystals) {
             c.gameMode.attack(c.player, crystal);
             c.player.swing(InteractionHand.MAIN_HAND);
-            break;
+            return true;
         }
+        return false;
     }
 
     private static void anchorMacro(Minecraft c, CpvpConfig.Settings s) {
@@ -148,7 +172,7 @@ public final class CombatModuleEngine {
             anchorSequencePos = pos.immutable();
             anchorSequenceStage = 0;
         }
-        if (System.currentTimeMillis() - lastAnchorStage < s.anchorStageDelayMs) return;
+        if (!ready(System.currentTimeMillis(), lastAnchorStage, s.anchorMacroMinStageDelayTicks, s.anchorMacroMaxStageDelayTicks)) return;
 
         int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
         if (s.anchorMacroAutoCharge && charges < 4) {
@@ -159,7 +183,7 @@ public final class CombatModuleEngine {
             lastAnchorStage = System.currentTimeMillis();
             return;
         }
-        select(c, s.anchorDetonatorSlot);
+        if (!selectDetonator(c, s.anchorDetonatorSlot)) return;
         c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
         lastAnchorStage = System.currentTimeMillis();
         anchorSequenceStage++;
@@ -186,8 +210,8 @@ public final class CombatModuleEngine {
             // Never detonate if the protection block could not be placed and verified.
             return;
         }
-        if (System.currentTimeMillis() - lastAnchorStage < s.anchorStageDelayMs) return;
-        select(c, s.anchorDetonatorSlot);
+        
+        if (!selectDetonator(c, s.anchorDetonatorSlot)) return;
         c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
         lastAnchorStage = System.currentTimeMillis();
     }
@@ -200,7 +224,7 @@ public final class CombatModuleEngine {
         }
         BlockPos pos = findAnchorOrPlace(c, aimed);
         if (pos == null) return;
-        if (System.currentTimeMillis() - lastAnchorStage < s.anchorStageDelayMs) return;
+        if (!ready(System.currentTimeMillis(), lastAnchorStage, s.doubleAnchorMinStageDelayTicks, s.doubleAnchorMaxStageDelayTicks)) return;
 
         int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
         if (charges < 4) {
@@ -209,7 +233,7 @@ public final class CombatModuleEngine {
             select(c, glowstone);
             c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
         } else {
-            select(c, s.anchorDetonatorSlot);
+            if (!selectDetonator(c, s.anchorDetonatorSlot)) return;
             c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
             doubleAnchorPass++;
             if (doubleAnchorPass >= s.doubleAnchorPasses) doubleAnchorPass = 0;
@@ -286,6 +310,24 @@ public final class CombatModuleEngine {
     private static boolean isCrystalBase(Minecraft c, BlockPos pos) {
         return c.level.getBlockState(pos).is(Blocks.OBSIDIAN)
                 || c.level.getBlockState(pos).is(Blocks.BEDROCK);
+    }
+
+    private static boolean selectDetonator(Minecraft c, int preferredSlot) {
+        if (preferredSlot >= 0 && preferredSlot < 9) {
+            var stack = c.player.getInventory().getItem(preferredSlot);
+            if (!stack.is(Items.GLOWSTONE) && !stack.is(Items.RESPAWN_ANCHOR)) {
+                select(c, preferredSlot);
+                return true;
+            }
+        }
+        for (int slot = 0; slot < 9; slot++) {
+            var stack = c.player.getInventory().getItem(slot);
+            if (!stack.is(Items.GLOWSTONE) && !stack.is(Items.RESPAWN_ANCHOR)) {
+                select(c, slot);
+                return true;
+            }
+        }
+        return false;
     }
 
     private static int findHotbar(Minecraft c, Item item) {
