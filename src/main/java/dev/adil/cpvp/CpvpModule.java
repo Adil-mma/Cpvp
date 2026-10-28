@@ -7,9 +7,10 @@ public enum CpvpModule {
     AUTO_TOTEM("Auto Totem", Group.CRYSTAL),
     ANCHOR_MACRO("Anchor Macro", Group.ANCHOR),
     SAFE_ANCHOR("Safe Anchor", Group.ANCHOR),
-    DOUBLE_ANCHOR("Double Anchor", Group.ANCHOR);
+    DOUBLE_ANCHOR("Double Anchor", Group.ANCHOR),
+    TOTEM_SWAP("Totem Swap", Group.UTILITY);
 
-    public enum Group { CRYSTAL, ANCHOR }
+    public enum Group { CRYSTAL, ANCHOR, UTILITY }
 
     public final String title;
     public final Group group;
@@ -28,6 +29,7 @@ public enum CpvpModule {
             case ANCHOR_MACRO -> s.anchorMacroEnabled;
             case SAFE_ANCHOR -> s.safeAnchorEnabled;
             case DOUBLE_ANCHOR -> s.doubleAnchorEnabled;
+            case TOTEM_SWAP -> s.totemSwapEnabled;
         };
     }
 
@@ -47,6 +49,33 @@ public enum CpvpModule {
             case ANCHOR_MACRO -> s.anchorMacroEnabled = enabled;
             case SAFE_ANCHOR -> s.safeAnchorEnabled = enabled;
             case DOUBLE_ANCHOR -> s.doubleAnchorEnabled = enabled;
+            case TOTEM_SWAP -> s.totemSwapEnabled = enabled;
+        }
+    }
+
+    public int bind(CpvpConfig.Settings s) {
+        return switch (this) {
+            case FAST_CRYSTAL -> s.fastCrystalBind;
+            case AUTO_CRYSTAL -> s.autoCrystalBind;
+            case HIT_CRYSTAL -> s.hitCrystalBind;
+            case AUTO_TOTEM -> s.autoTotemBind;
+            case ANCHOR_MACRO -> s.anchorMacroBind;
+            case SAFE_ANCHOR -> s.safeAnchorBind;
+            case DOUBLE_ANCHOR -> s.doubleAnchorBind;
+            case TOTEM_SWAP -> s.totemSwapBind;
+        };
+    }
+
+    public void setBind(CpvpConfig.Settings s, int key) {
+        switch (this) {
+            case FAST_CRYSTAL -> s.fastCrystalBind = key;
+            case AUTO_CRYSTAL -> s.autoCrystalBind = key;
+            case HIT_CRYSTAL -> s.hitCrystalBind = key;
+            case AUTO_TOTEM -> s.autoTotemBind = key;
+            case ANCHOR_MACRO -> s.anchorMacroBind = key;
+            case SAFE_ANCHOR -> s.safeAnchorBind = key;
+            case DOUBLE_ANCHOR -> s.doubleAnchorBind = key;
+            case TOTEM_SWAP -> s.totemSwapBind = key;
         }
     }
 }
