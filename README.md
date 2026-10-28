@@ -2,25 +2,26 @@
 
 Minecraft 26.2 client-side Fabric mod.
 
-## Controls
+## Controls and settings
 
-- `9`: open the two-panel Crystal / Anchor GUI.
-- `L`: toggle Auto Totem.
-Combat module keybindings are unassigned by default. Assign each one in **Options → Controls → Key Binds → Cpvp**. Menu and Auto Totem also remain rebindable there. In the GUI, left-click a module to toggle it and right-click to edit its settings. Enabled modules show `ON`.
+- **Open Cpvp menu** is a normal Minecraft keybind under **Options → Controls → Key Binds → Cpvp**. It defaults to `9`, but can be changed there, so it does not need to use Right Shift.
+- Left-click a module in the main GUI to toggle it. Right-click a module to open its settings.
+- Each module's **Toggle key** is configured inside that module's settings. Click the row, then press a keyboard key or mouse button. Use the reset arrow to clear it.
+- Every setting has its own reset arrow. Delay intervals have independent Min and Max controls, each from 0 to 5 ticks. All delay intervals default to **1–2 ticks**.
+- A one-tick interval is approximately 50 ms. If Min is raised above Max, Max follows Min; if Max is lowered below Min, Min follows Max.
 
-## Module behavior
+## Modules
 
-- **Fast Crystal:** repeats crystal placement on a looked-at obsidian/bedrock block while use is held; delay is configurable.
-- **Auto Crystal:** while use is held, attempts crystal placement and attacks nearby crystals at a configurable range. Its safety stop prevents actions when the player is above the target.
-- **Hit Crystal:** while use is held, attacks a targeted or nearby crystal, with configurable range, delay, and above-target stop.
-- **Anchor Macro:** while use is held, attempts to place an anchor on the looked-at face, charge it with glowstone, and use the configured hotbar slot to detonate it.
-- **Safe Anchor:** checks for solid cover between the player and a targeted anchor. If cover is absent, it attempts to place a solid block before detonating; it does not detonate if cover cannot be verified.
-- **Double Anchor:** automates anchor placement/charging/detonation with a configurable stage delay.
-- **Auto Totem:** retains Auto and Manual modes.
+- **Fast Crystal:** configurable delay interval and holding-use option.
+- **Auto Crystal:** configurable range and delay interval; handles a crystal entity under the crosshair as well as crystals already spawned nearby.
+- **Hit Crystal:** configurable range, delay interval, and above-target stop.
+- **Anchor Macro:** delay and stage-delay intervals, auto-charge option, and detonator slot.
+- **Safe Anchor:** action-delay interval, self-distance, and cover protection option.
+- **Double Anchor:** repeat and stage-delay intervals, pass count, and detonator slot.
+- **Auto Totem:** Auto and Manual modes, backup hotbar slot.
+- **Totem Swap:** when attack is pressed with a totem selected in the main hand, temporarily selects a sword and returns to the original totem slot after the configured interval.
 
 ## Notes
 
-- Combat actions are client-side inputs and remain subject to Minecraft/server validation, interaction reach, inventory contents, and server tick rate.
-- Delay settings are shown from 0 to 10 ticks (one tick is approximately 50 ms). A value of `0` still runs at most once per client tick.
-- Anchor automation modules are mutually exclusive to avoid conflicting placement/detonation sequences.
-- The generated build should be tested in a local Minecraft 26.2 instance and on the intended server before relying on it in combat.
+- Minecraft and the server still determine whether a click/interaction succeeds; reach, inventory state, and server rules apply.
+- Anchor automation should be tested on a local 26.2 world before relying on it on a server.
