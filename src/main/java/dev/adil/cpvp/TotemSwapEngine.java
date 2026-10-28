@@ -52,7 +52,7 @@ public final class TotemSwapEngine {
                     int min = s.totemSwapMinDelayTicks;
                     int max = s.totemSwapMaxDelayTicks;
                     int delay = ThreadLocalRandom.current().nextInt(min, max + 1);
-                    restoreAt = ticks + Math.max(1, delay);
+                    restoreAt = ticks + delay;
                 }
             }
         }
