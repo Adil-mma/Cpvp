@@ -12,51 +12,41 @@ import org.lwjgl.glfw.GLFW;
 public final class CpvpClient implements ClientModInitializer {
     private static final KeyMapping.Category CATEGORY =
             KeyMapping.Category.register(Identifier.fromNamespaceAndPath("cpvp", "main"));
-    private KeyMapping menu, totem;
-    private KeyMapping[] moduleKeys;
+    private KeyMapping menu;
+    private final boolean[] wasDown = new boolean[CpvpModule.values().length];
 
     @Override
     public void onInitializeClient() {
         CpvpConfig.load();
+        // The GUI opener is a normal Minecraft Controls-menu binding.
         menu = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.cpvp.open_menu", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_9, CATEGORY));
-        totem = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.cpvp.auto_totem", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_L, CATEGORY));
-        moduleKeys = new KeyMapping[] {
-                key("key.cpvp.fast_crystal", GLFW.GLFW_KEY_UNKNOWN),
-                key("key.cpvp.auto_crystal", GLFW.GLFW_KEY_UNKNOWN),
-                key("key.cpvp.hit_crystal", GLFW.GLFW_KEY_UNKNOWN),
-                key("key.cpvp.anchor_macro", GLFW.GLFW_KEY_UNKNOWN),
-                key("key.cpvp.safe_anchor", GLFW.GLFW_KEY_UNKNOWN),
-                key("key.cpvp.double_anchor", GLFW.GLFW_KEY_UNKNOWN)
-        };
+
+        ClientTickEvents.START_CLIENT_TICK.register(TotemSwapEngine::tick);
 
         ClientTickEvents.END_CLIENT_TICK.register(c -> {
             while (menu.consumeClick()) {
                 if (c.player != null) c.gui.setScreen(new CpvpScreen());
             }
-            while (totem.consumeClick()) {
-                var settings = CpvpConfig.settings();
-                settings.autoTotemEnabled = !settings.autoTotemEnabled;
-                CpvpConfig.save();
-                if (c.player != null) c.player.sendSystemMessage(Component.literal(
-                        "[Cpvp] Auto Totem: " + (settings.autoTotemEnabled ? "ON" : "OFF")
-                                + " (" + settings.autoTotemMode + ")"));
-            }
-            CpvpModule[] modules = {
-                    CpvpModule.FAST_CRYSTAL, CpvpModule.AUTO_CRYSTAL, CpvpModule.HIT_CRYSTAL,
-                    CpvpModule.ANCHOR_MACRO, CpvpModule.SAFE_ANCHOR, CpvpModule.DOUBLE_ANCHOR
-            };
-            for (int i = 0; i < moduleKeys.length; i++) {
-                while (moduleKeys[i].consumeClick()) {
+
+            CpvpModule[] modules = CpvpModule.values();
+            boolean editingSettings = c.gui.screen() instanceof ModuleSettingsScreen;
+            for (int i = 0; i < modules.length; i++) {
+                int bind = modules[i].bind(CpvpConfig.settings());
+                boolean down = !editingSettings && isBindDown(c, bind);
+                if (down && !wasDown[i]) {
                     var settings = CpvpConfig.settings();
                     modules[i].setEnabled(settings, !modules[i].enabled(settings));
                     CpvpConfig.save();
-                    if (c.player != null) c.player.sendSystemMessage(Component.literal(
-                            "[Cpvp] " + modules[i].title + ": "
-                                    + (modules[i].enabled(settings) ? "ON" : "OFF")));
+                    if (c.player != null) {
+                        c.player.sendSystemMessage(Component.literal(
+                                "[Cpvp] " + modules[i].title + ": "
+                                        + (modules[i].enabled(settings) ? "ON" : "OFF")));
+                    }
                 }
+                wasDown[i] = down;
             }
+
             if (c.player != null && c.level != null && c.gameMode != null) {
                 AutoTotemEngine.tick(c);
                 CombatModuleEngine.tick(c);
@@ -64,8 +54,14 @@ public final class CpvpClient implements ClientModInitializer {
         });
     }
 
-    private static KeyMapping key(String id, int keyCode) {
-        return KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                id, InputConstants.Type.KEYSYM, keyCode, CATEGORY));
+    private static boolean isBindDown(net.minecraft.client.Minecraft c, int bind) {
+        if (bind == -1 || c.getWindow() == null) return false;
+        long handle = c.getWindow().getWindow();
+        if (bind >= 0) {
+            return GLFW.glfwGetKey(handle, bind) == GLFW.GLFW_PRESS;
+        }
+        int mouseButton = -bind - 2;
+        return mouseButton >= 0 && mouseButton <= 7
+                && GLFW.glfwGetMouseButton(handle, mouseButton) == GLFW.GLFW_PRESS;
     }
 }
