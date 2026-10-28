@@ -8,7 +8,7 @@ public enum CpvpModule {
     ANCHOR_MACRO("Anchor Macro", Group.ANCHOR),
     SAFE_ANCHOR("Safe Anchor", Group.ANCHOR),
     DOUBLE_ANCHOR("Double Anchor", Group.ANCHOR),
-    TOTEM_SWAP("Totem Swap", Group.UTILITY);
+    TOTEM_SWAP("Totem Swap", Group.ANCHOR);
 
     public enum Group { CRYSTAL, ANCHOR, UTILITY }
 
@@ -34,7 +34,9 @@ public enum CpvpModule {
     }
 
     public void setEnabled(CpvpConfig.Settings s, boolean enabled) {
-        if (enabled && group == Group.ANCHOR) {
+        // The three anchor macros conflict with one another, but Totem Swap is
+        // independent and must not disable an anchor macro when toggled on.
+        if (enabled && (this == ANCHOR_MACRO || this == SAFE_ANCHOR || this == DOUBLE_ANCHOR)) {
             if (this != ANCHOR_MACRO) s.anchorMacroEnabled = false;
             if (this != SAFE_ANCHOR) s.safeAnchorEnabled = false;
             if (this != DOUBLE_ANCHOR) s.doubleAnchorEnabled = false;
