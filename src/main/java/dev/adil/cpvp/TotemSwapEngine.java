@@ -2,7 +2,6 @@ package dev.adil.cpvp;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.SwordItem;
 
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -62,7 +61,10 @@ public final class TotemSwapEngine {
 
     private static int findSword(Minecraft c) {
         for (int slot = 0; slot < 9; slot++) {
-            if (c.player.getInventory().getItem(slot).getItem() instanceof SwordItem) return slot;
+            var item = c.player.getInventory().getItem(slot).getItem();
+            if (item == Items.WOODEN_SWORD || item == Items.STONE_SWORD
+                    || item == Items.IRON_SWORD || item == Items.GOLDEN_SWORD
+                    || item == Items.DIAMOND_SWORD || item == Items.NETHERITE_SWORD) return slot;
         }
         return -1;
     }
