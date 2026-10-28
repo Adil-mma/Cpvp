@@ -44,7 +44,7 @@ public final class CpvpScreen extends Screen {
                 CpvpModule.HIT_CRYSTAL, CpvpModule.AUTO_TOTEM
         };
         CpvpModule[] anchors = {
-                CpvpModule.ANCHOR_MACRO, CpvpModule.SAFE_ANCHOR, CpvpModule.DOUBLE_ANCHOR
+                CpvpModule.ANCHOR_MACRO, CpvpModule.SAFE_ANCHOR, CpvpModule.DOUBLE_ANCHOR, CpvpModule.TOTEM_SWAP
         };
         drawPanel(g, leftX, topY, "CRISTAL AURA", crystals, mx, my);
         drawPanel(g, rightX, topY, "ANCHOR AURA", anchors, mx, my);
@@ -115,7 +115,7 @@ public final class CpvpScreen extends Screen {
                 CpvpModule.HIT_CRYSTAL, CpvpModule.AUTO_TOTEM
         };
         CpvpModule[] anchors = {
-                CpvpModule.ANCHOR_MACRO, CpvpModule.SAFE_ANCHOR, CpvpModule.DOUBLE_ANCHOR
+                CpvpModule.ANCHOR_MACRO, CpvpModule.SAFE_ANCHOR, CpvpModule.DOUBLE_ANCHOR, CpvpModule.TOTEM_SWAP
         };
         CpvpModule found = rowAt(mx, my, leftX, crystals);
         return found != null ? found : rowAt(mx, my, rightX, anchors);
