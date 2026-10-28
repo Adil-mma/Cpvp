@@ -1,11 +1,4 @@
 {
   "key.category.cpvp.main": "Cpvp",
-  "key.cpvp.open_menu": "Open Cpvp menu",
-  "key.cpvp.auto_totem": "Toggle Auto Totem",
-  "key.cpvp.fast_crystal": "Toggle Fast Crystal",
-  "key.cpvp.auto_crystal": "Toggle Auto Crystal",
-  "key.cpvp.hit_crystal": "Toggle Hit Crystal",
-  "key.cpvp.anchor_macro": "Toggle Anchor Macro",
-  "key.cpvp.safe_anchor": "Toggle Safe Anchor",
-  "key.cpvp.double_anchor": "Toggle Double Anchor"
+  "key.cpvp.open_menu": "Open Cpvp menu"
 }
