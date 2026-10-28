@@ -47,50 +47,117 @@ public final class CpvpConfig {
         public boolean anchorMacroEnabled;
         public boolean safeAnchorEnabled;
         public boolean doubleAnchorEnabled;
+        public boolean totemSwapEnabled;
+
+        // Keyboard codes are GLFW key codes. Values <= -2 encode mouse buttons; -1 means unbound.
+        public int fastCrystalBind = -1;
+        public int autoCrystalBind = -1;
+        public int hitCrystalBind = -1;
+        public int autoTotemBind = -1;
+        public int anchorMacroBind = -1;
+        public int safeAnchorBind = -1;
+        public int doubleAnchorBind = -1;
+        public int totemSwapBind = -1;
 
         public String autoTotemMode = "AUTO";
         public int totemBackupSlot = 8;
 
-        public int fastCrystalDelayMs = 50;
+        public int fastCrystalMinDelayTicks = 1;
+        public int fastCrystalMaxDelayTicks = 2;
         public boolean fastCrystalOnlyWhileHolding = true;
 
         public double autoCrystalRange = 4.0;
-        public int autoCrystalDelayMs = 100;
+        public int autoCrystalMinDelayTicks = 1;
+        public int autoCrystalMaxDelayTicks = 2;
         public boolean autoCrystalStopAboveTarget = true;
 
         public double hitCrystalRange = 4.0;
-        public int hitCrystalDelayMs = 25;
+        public int hitCrystalMinDelayTicks = 1;
+        public int hitCrystalMaxDelayTicks = 2;
         public boolean hitCrystalStopAboveTarget = true;
 
-        public int anchorMacroDelayMs = 100;
-        public int anchorStageDelayMs = 50;
+        public int anchorMacroMinDelayTicks = 1;
+        public int anchorMacroMaxDelayTicks = 2;
+        public int anchorMacroMinStageDelayTicks = 1;
+        public int anchorMacroMaxStageDelayTicks = 2;
         public int anchorDetonatorSlot = 0;
         public boolean anchorMacroAutoCharge = true;
 
-        public int safeAnchorDelayMs = 100;
+        public int safeAnchorMinDelayTicks = 1;
+        public int safeAnchorMaxDelayTicks = 2;
         public double safeAnchorSelfDistance = 5.0;
         public boolean safeAnchorProtectSelf = true;
 
-        public int doubleAnchorDelayMs = 100;
+        public int doubleAnchorMinDelayTicks = 1;
+        public int doubleAnchorMaxDelayTicks = 2;
+        public int doubleAnchorMinStageDelayTicks = 1;
+        public int doubleAnchorMaxStageDelayTicks = 2;
         public int doubleAnchorPasses = 2;
+
+        public int totemSwapMinDelayTicks = 1;
+        public int totemSwapMaxDelayTicks = 2;
 
         void sanitize() {
             if (autoTotemMode == null) autoTotemMode = "AUTO";
             autoTotemMode = autoTotemMode.equalsIgnoreCase("MANUAL") ? "MANUAL" : "AUTO";
             totemBackupSlot = clamp(totemBackupSlot, 0, 8);
-            fastCrystalDelayMs = clamp(fastCrystalDelayMs, 0, 500);
-            autoCrystalRange = clamp(autoCrystalRange, 1.0, 6.0);
-            autoCrystalDelayMs = clamp(autoCrystalDelayMs, 0, 500);
-            hitCrystalRange = clamp(hitCrystalRange, 1.0, 8.0);
-            hitCrystalDelayMs = clamp(hitCrystalDelayMs, 0, 500);
-            anchorMacroDelayMs = clamp(anchorMacroDelayMs, 0, 500);
-            anchorStageDelayMs = clamp(anchorStageDelayMs, 0, 500);
             anchorDetonatorSlot = clamp(anchorDetonatorSlot, 0, 8);
-            safeAnchorDelayMs = clamp(safeAnchorDelayMs, 0, 500);
-            safeAnchorSelfDistance = clamp(safeAnchorSelfDistance, 2.0, 8.0);
-            doubleAnchorDelayMs = clamp(doubleAnchorDelayMs, 0, 500);
             doubleAnchorPasses = clamp(doubleAnchorPasses, 2, 4);
+            autoCrystalRange = clamp(autoCrystalRange, 1.0, 6.0);
+            hitCrystalRange = clamp(hitCrystalRange, 1.0, 8.0);
+            safeAnchorSelfDistance = clamp(safeAnchorSelfDistance, 2.0, 8.0);
+
+            fastCrystalBind = clampBind(fastCrystalBind);
+            autoCrystalBind = clampBind(autoCrystalBind);
+            hitCrystalBind = clampBind(hitCrystalBind);
+            autoTotemBind = clampBind(autoTotemBind);
+            anchorMacroBind = clampBind(anchorMacroBind);
+            safeAnchorBind = clampBind(safeAnchorBind);
+            doubleAnchorBind = clampBind(doubleAnchorBind);
+            totemSwapBind = clampBind(totemSwapBind);
+
+            normalizeRange(fastCrystalMinDelayTicks, fastCrystalMaxDelayTicks, (a, b) -> {
+                fastCrystalMinDelayTicks = a; fastCrystalMaxDelayTicks = b;
+            });
+            normalizeRange(autoCrystalMinDelayTicks, autoCrystalMaxDelayTicks, (a, b) -> {
+                autoCrystalMinDelayTicks = a; autoCrystalMaxDelayTicks = b;
+            });
+            normalizeRange(hitCrystalMinDelayTicks, hitCrystalMaxDelayTicks, (a, b) -> {
+                hitCrystalMinDelayTicks = a; hitCrystalMaxDelayTicks = b;
+            });
+            normalizeRange(anchorMacroMinDelayTicks, anchorMacroMaxDelayTicks, (a, b) -> {
+                anchorMacroMinDelayTicks = a; anchorMacroMaxDelayTicks = b;
+            });
+            normalizeRange(anchorMacroMinStageDelayTicks, anchorMacroMaxStageDelayTicks, (a, b) -> {
+                anchorMacroMinStageDelayTicks = a; anchorMacroMaxStageDelayTicks = b;
+            });
+            normalizeRange(safeAnchorMinDelayTicks, safeAnchorMaxDelayTicks, (a, b) -> {
+                safeAnchorMinDelayTicks = a; safeAnchorMaxDelayTicks = b;
+            });
+            normalizeRange(doubleAnchorMinDelayTicks, doubleAnchorMaxDelayTicks, (a, b) -> {
+                doubleAnchorMinDelayTicks = a; doubleAnchorMaxDelayTicks = b;
+            });
+            normalizeRange(doubleAnchorMinStageDelayTicks, doubleAnchorMaxStageDelayTicks, (a, b) -> {
+                doubleAnchorMinStageDelayTicks = a; doubleAnchorMaxStageDelayTicks = b;
+            });
+            normalizeRange(totemSwapMinDelayTicks, totemSwapMaxDelayTicks, (a, b) -> {
+                totemSwapMinDelayTicks = a; totemSwapMaxDelayTicks = b;
+            });
         }
+
+        private static int clampBind(int v) {
+            if (v == -1 || (v <= -2 && v >= -9)) return v;
+            return clamp(v, 0, 348);
+        }
+
+        private static void normalizeRange(int min, int max, RangeConsumer consumer) {
+            int a = clamp(min, 0, 5), b = clamp(max, 0, 5);
+            if (a > b) { int t = a; a = b; b = t; }
+            consumer.accept(a, b);
+        }
+
+        @FunctionalInterface
+        private interface RangeConsumer { void accept(int min, int max); }
 
         private static int clamp(int v, int min, int max) { return Math.max(min, Math.min(max, v)); }
         private static double clamp(double v, double min, double max) {
