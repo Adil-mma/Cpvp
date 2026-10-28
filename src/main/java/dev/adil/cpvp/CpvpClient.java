@@ -56,7 +56,7 @@ public final class CpvpClient implements ClientModInitializer {
 
     private static boolean isBindDown(net.minecraft.client.Minecraft c, int bind) {
         if (bind == -1 || c.getWindow() == null) return false;
-        long handle = c.getWindow().getWindow();
+        long handle = c.getWindow().handle();
         if (bind >= 0) {
             return GLFW.glfwGetKey(handle, bind) == GLFW.GLFW_PRESS;
         }
