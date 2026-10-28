@@ -101,8 +101,36 @@ public final class ModuleSettingsScreen extends Screen {
     private static String keyName(int bind) {
         if (bind == -1) return "UNBOUND";
         if (bind <= -2) return "MOUSE " + (-bind - 1);
-        String name = GLFW.glfwGetKeyName(bind, 0);
-        return name == null ? "KEY " + bind : name.toUpperCase(java.util.Locale.ROOT);
+        if (bind >= GLFW.GLFW_KEY_F1 && bind <= GLFW.GLFW_KEY_F25) {
+            return "F" + (bind - GLFW.GLFW_KEY_F1 + 1);
+        }
+        return switch (bind) {
+            case GLFW.GLFW_KEY_ESCAPE -> "ESC";
+            case GLFW.GLFW_KEY_SPACE -> "SPACE";
+            case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> "ENTER";
+            case GLFW.GLFW_KEY_TAB -> "TAB";
+            case GLFW.GLFW_KEY_BACKSPACE -> "BACKSPACE";
+            case GLFW.GLFW_KEY_LEFT_SHIFT -> "L-SHIFT";
+            case GLFW.GLFW_KEY_RIGHT_SHIFT -> "R-SHIFT";
+            case GLFW.GLFW_KEY_LEFT_CONTROL -> "L-CTRL";
+            case GLFW.GLFW_KEY_RIGHT_CONTROL -> "R-CTRL";
+            case GLFW.GLFW_KEY_LEFT_ALT -> "L-ALT";
+            case GLFW.GLFW_KEY_RIGHT_ALT -> "R-ALT";
+            case GLFW.GLFW_KEY_UP -> "UP";
+            case GLFW.GLFW_KEY_DOWN -> "DOWN";
+            case GLFW.GLFW_KEY_LEFT -> "LEFT";
+            case GLFW.GLFW_KEY_RIGHT -> "RIGHT";
+            case GLFW.GLFW_KEY_DELETE -> "DELETE";
+            case GLFW.GLFW_KEY_INSERT -> "INSERT";
+            case GLFW.GLFW_KEY_HOME -> "HOME";
+            case GLFW.GLFW_KEY_END -> "END";
+            case GLFW.GLFW_KEY_PAGE_UP -> "PAGE UP";
+            case GLFW.GLFW_KEY_PAGE_DOWN -> "PAGE DOWN";
+            default -> {
+                String name = GLFW.glfwGetKeyName(bind, 0);
+                yield name == null ? "KEY " + bind : name.toUpperCase(java.util.Locale.ROOT);
+            }
+        };
     }
 
     private static String onOff(boolean v) { return v ? "ON" : "OFF"; }
