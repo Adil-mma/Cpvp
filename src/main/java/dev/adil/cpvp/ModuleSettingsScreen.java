@@ -27,7 +27,7 @@ public final class ModuleSettingsScreen extends Screen {
             case HIT_CRYSTAL -> new String[] { "Toggle key", "Hit range", "Delay range", "Stop above target" };
             case AUTO_TOTEM -> new String[] { "Toggle key", "Mode", "Backup hotbar slot" };
             case ANCHOR_MACRO -> new String[] { "Toggle key", "Delay range", "Stage delay range", "Auto-charge", "Detonator hotbar slot" };
-            case SAFE_ANCHOR -> new String[] { "Toggle key", "Delay range", "Minimum self distance", "Require solid cover" };
+            case SAFE_ANCHOR -> new String[] { "Toggle key", "Delay range", "Cover within distance", "Require solid cover" };
             case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Delay range", "Stage delay range", "Macro passes", "Detonator hotbar slot" };
             case TOTEM_SWAP -> new String[] { "Toggle key", "Swap delay range" };
         };

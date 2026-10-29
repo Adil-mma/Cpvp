@@ -5,9 +5,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RespawnAnchorBlock;
@@ -21,178 +20,217 @@ import java.util.List;
 
 /**
  * Client-side tick engine for the Crystal/Anchor modules.
- * All actions are rate-limited and re-check the current world state before sending input.
+ *
+ * <p>Every module is paced by a {@link TickGate} (0-5 tick min/max range). The gate delay only
+ * starts after an action was really sent, so a module that has nothing to do reacts on the
+ * very next tick. All actions re-check the current world state before sending input.
  */
 public final class CombatModuleEngine {
-    private static long lastFastCrystal, lastAutoCrystal, lastHitCrystal;
-    private static long lastAnchorMacro, lastSafeAnchor, lastDoubleAnchor;
-    private static BlockPos anchorSequencePos;
-    private static int anchorSequenceStage;
+    /** Player feet must be this far above the crystal/base surface to count as "above". */
+    private static final double ABOVE_MARGIN = 0.5;
+
+    private static final TickGate FAST = new TickGate();
+    private static final TickGate AUTO = new TickGate();
+    private static final TickGate HIT = new TickGate();
+    private static final TickGate MACRO = new TickGate();
+    private static final TickGate MACRO_STAGE = new TickGate();
+    private static final TickGate SAFE = new TickGate();
+    private static final TickGate DOUBLE = new TickGate();
+    private static final TickGate DOUBLE_STAGE = new TickGate();
+
     private static int doubleAnchorPass;
-    private static long lastAnchorStage;
+    private static boolean doubleAnchorDone;
+    /** Set by {@link #findAnchorOrPlace} when it sent a placement this tick. */
+    private static boolean placedAnchorThisTick;
 
     private CombatModuleEngine() {}
 
     public static void tick(Minecraft c) {
         if (c.player == null || c.level == null || c.gameMode == null || c.player.isSpectator()) {
-            resetSequences();
+            resetHoldState();
+            return;
+        }
+        // Never act through a GUI (chat, inventory, the Cpvp menu ...).
+        if (c.gui.screen() != null) {
+            resetHoldState();
             return;
         }
 
         CpvpConfig.Settings s = CpvpConfig.settings();
         boolean useHeld = c.options.keyUse.isDown();
-        long now = System.currentTimeMillis();
+
         if (!useHeld) {
-            resetSequences();
-            if (s.fastCrystalEnabled && !s.fastCrystalOnlyWhileHolding
-                    && ready(now, lastFastCrystal, s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks)) {
-                fastCrystal(c);
-                lastFastCrystal = now;
+            resetHoldState();
+            if (s.fastCrystalEnabled && !s.fastCrystalOnlyWhileHolding && FAST.ready()
+                    && fastCrystal(c)) {
+                FAST.start(s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks);
             }
             return;
         }
+
         if (s.fastCrystalEnabled && !s.autoCrystalEnabled && !s.hitCrystalEnabled
-                && ready(now, lastFastCrystal, s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks)) {
-            if (!s.fastCrystalOnlyWhileHolding || useHeld) {
-                fastCrystal(c);
-                lastFastCrystal = now;
+                && FAST.ready() && fastCrystal(c)) {
+            FAST.start(s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks);
+        }
+
+        if (s.autoCrystalEnabled) {
+            int min = s.autoCrystalMinDelayTicks;
+            int max = s.autoCrystalMaxDelayTicks;
+            if (s.fastCrystalEnabled) {
+                // Fast Crystal only ever makes Auto Crystal faster, never slower.
+                min = Math.min(min, s.fastCrystalMinDelayTicks);
+                max = Math.min(max, s.fastCrystalMaxDelayTicks);
+                if (min > max) min = max;
+            }
+            if (AUTO.ready() && autoCrystal(c, s)) AUTO.start(min, max);
+        } else if (s.hitCrystalEnabled) {
+            if (HIT.ready() && hitCrystal(c, s)) {
+                HIT.start(s.hitCrystalMinDelayTicks, s.hitCrystalMaxDelayTicks);
             }
         }
-        int autoMinDelay = s.autoCrystalMinDelayTicks;
-        int autoMaxDelay = s.autoCrystalMaxDelayTicks;
-        if (s.fastCrystalEnabled) {
-            autoMinDelay = Math.min(autoMinDelay, s.fastCrystalMinDelayTicks);
-            autoMaxDelay = Math.min(autoMaxDelay, s.fastCrystalMaxDelayTicks);
-            if (autoMinDelay > autoMaxDelay) autoMinDelay = autoMaxDelay;
-        }
-        if (s.autoCrystalEnabled && ready(now, lastAutoCrystal, autoMinDelay, autoMaxDelay)) {
-            autoCrystal(c, s);
-            lastAutoCrystal = now;
-        }
-        else if (s.hitCrystalEnabled && ready(now, lastHitCrystal, s.hitCrystalMinDelayTicks, s.hitCrystalMaxDelayTicks)) {
-            hitCrystal(c, s);
-            lastHitCrystal = now;
-        }
-        // Anchor automation modes are mutually exclusive; safety mode has priority
-        // if an older config file contains more than one enabled anchor module.
-        if (s.safeAnchorEnabled && ready(now, lastSafeAnchor, s.safeAnchorMinDelayTicks, s.safeAnchorMaxDelayTicks)) {
-            safeAnchor(c, s);
-            lastSafeAnchor = now;
-        } else if (s.doubleAnchorEnabled && ready(now, lastDoubleAnchor, s.doubleAnchorMinDelayTicks, s.doubleAnchorMaxDelayTicks)) {
-            doubleAnchor(c, s);
-            lastDoubleAnchor = now;
-        } else if (s.anchorMacroEnabled && ready(now, lastAnchorMacro, s.anchorMacroMinDelayTicks, s.anchorMacroMaxDelayTicks)) {
-            anchorMacro(c, s);
-            lastAnchorMacro = now;
+
+        // Anchor modes are mutually exclusive (CpvpModule.setEnabled); if an older config file
+        // has several enabled, Safe Anchor wins over Double Anchor, which wins over Macro.
+        if (s.safeAnchorEnabled) {
+            if (SAFE.ready() && safeAnchor(c, s)) {
+                SAFE.start(s.safeAnchorMinDelayTicks, s.safeAnchorMaxDelayTicks);
+            }
+        } else if (s.doubleAnchorEnabled) {
+            boolean main = DOUBLE.ready();
+            boolean stage = DOUBLE_STAGE.ready();
+            if (main && stage && doubleAnchor(c, s)) {
+                DOUBLE.start(s.doubleAnchorMinDelayTicks, s.doubleAnchorMaxDelayTicks);
+                DOUBLE_STAGE.start(s.doubleAnchorMinStageDelayTicks, s.doubleAnchorMaxStageDelayTicks);
+            }
+        } else if (s.anchorMacroEnabled) {
+            boolean main = MACRO.ready();
+            boolean stage = MACRO_STAGE.ready();
+            if (main && stage && anchorMacro(c, s)) {
+                MACRO.start(s.anchorMacroMinDelayTicks, s.anchorMacroMaxDelayTicks);
+                MACRO_STAGE.start(s.anchorMacroMinStageDelayTicks, s.anchorMacroMaxStageDelayTicks);
+            }
         }
     }
 
-    private static int delayMs(int minTicks, int maxTicks) {
-        int min = Math.max(0, Math.min(5, minTicks));
-        int max = Math.max(min, Math.min(5, maxTicks));
-        return java.util.concurrent.ThreadLocalRandom.current().nextInt(min, max + 1) * 50;
-    }
+    // ---------------------------------------------------------------- crystals
 
-    private static boolean ready(long now, long last, int minTicks, int maxTicks) {
-        return now - last >= delayMs(minTicks, maxTicks);
-    }
-
-    private static void fastCrystal(Minecraft c) {
+    /** Places a crystal on the obsidian/bedrock under the crosshair. */
+    private static boolean fastCrystal(Minecraft c) {
         BlockHitResult hit = blockHit(c);
-        if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return;
+        if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return false;
         int crystalSlot = findHotbar(c, Items.END_CRYSTAL);
-        if (crystalSlot < 0) return;
+        if (crystalSlot < 0) return false;
         select(c, crystalSlot);
         c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+        return true;
     }
 
-    private static void autoCrystal(Minecraft c, CpvpConfig.Settings s) {
+    /** Hold use: breaks the crystal in reach, otherwise places one on obsidian/bedrock. */
+    private static boolean autoCrystal(Minecraft c, CpvpConfig.Settings s) {
+        double range = s.autoCrystalRange;
         if (c.hitResult instanceof EntityHitResult entityHit
                 && entityHit.getEntity() instanceof EndCrystal crystal) {
-            if (s.autoCrystalStopAboveTarget && c.player.blockPosition().getY() > crystal.blockPosition().getY()) return;
-            if (c.player.distanceToSqr(crystal) <= s.autoCrystalRange * s.autoCrystalRange) {
-                c.gameMode.attack(c.player, crystal);
-                c.player.swing(InteractionHand.MAIN_HAND);
-            }
-            return;
+            return attackCrystal(c, crystal, range, s.autoCrystalStopAboveTarget);
         }
 
-        // Once placed, an End Crystal becomes the crosshair entity. Attack it before
-        // requiring the raycast to continue pointing at the obsidian/bedrock base.
-        if (attackNearbyCrystals(c, s.autoCrystalRange)) return;
+        // A freshly placed crystal is not always the crosshair entity; break nearby ones first.
+        if (attackNearestCrystal(c, range, s.autoCrystalStopAboveTarget)) return true;
 
         BlockHitResult hit = blockHit(c);
-        if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return;
-        if (s.autoCrystalStopAboveTarget && c.player.blockPosition().getY() > hit.getBlockPos().getY()) return;
-        if (c.player.distanceToSqr(Vec3.atCenterOf(hit.getBlockPos())) > s.autoCrystalRange * s.autoCrystalRange) return;
+        if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return false;
+        BlockPos base = hit.getBlockPos();
+        // Crystals sit on top of the base block, so compare against the base's top surface.
+        if (s.autoCrystalStopAboveTarget && isAbove(c, base.getY() + 1.0)) return false;
+        if (c.player.distanceToSqr(Vec3.atCenterOf(base)) > range * range) return false;
+        // Do not stack onto a base that already carries a crystal.
+        if (crystalAbove(c, base)) return false;
 
         int crystalSlot = findHotbar(c, Items.END_CRYSTAL);
-        if (crystalSlot >= 0) {
-            select(c, crystalSlot);
-            c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
-        }
+        if (crystalSlot < 0) return false;
+        select(c, crystalSlot);
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+        return true;
     }
 
-    private static void hitCrystal(Minecraft c, CpvpConfig.Settings s) {
-        HitResult hit = c.hitResult;
-        if (s.hitCrystalStopAboveTarget && hit instanceof EntityHitResult eh
-                && eh.getEntity() instanceof EndCrystal crystal
-                && c.player.blockPosition().getY() > crystal.blockPosition().getY()) return;
-        if (hit instanceof EntityHitResult eh && eh.getEntity() instanceof EndCrystal crystal) {
-            if (c.player.distanceToSqr(crystal) <= s.hitCrystalRange * s.hitCrystalRange) {
-                c.gameMode.attack(c.player, crystal);
-                c.player.swing(InteractionHand.MAIN_HAND);
-            }
-            return;
+    /** Hold use (vanilla places crystals): only breaks crystals. */
+    private static boolean hitCrystal(Minecraft c, CpvpConfig.Settings s) {
+        double range = s.hitCrystalRange;
+        if (c.hitResult instanceof EntityHitResult entityHit
+                && entityHit.getEntity() instanceof EndCrystal crystal) {
+            return attackCrystal(c, crystal, range, s.hitCrystalStopAboveTarget);
         }
         BlockHitResult block = blockHit(c);
-        if (block == null || !isCrystalBase(c, block.getBlockPos())) return;
-        if (c.player.distanceToSqr(Vec3.atCenterOf(block.getBlockPos())) > s.hitCrystalRange * s.hitCrystalRange) return;
-        attackNearbyCrystals(c, s.hitCrystalRange);
+        if (block == null || !isCrystalBase(c, block.getBlockPos())) return false;
+        return attackNearestCrystal(c, range, s.hitCrystalStopAboveTarget);
     }
 
-    private static boolean attackNearbyCrystals(Minecraft c, double range) {
+    private static boolean attackCrystal(Minecraft c, EndCrystal crystal, double range, boolean stopAbove) {
+        if (!crystal.isAlive()) return false;
+        if (stopAbove && isAbove(c, crystal.getY())) return false;
+        if (c.player.distanceToSqr(crystal) > range * range) return false;
+        c.gameMode.attack(c.player, crystal);
+        c.player.swing(InteractionHand.MAIN_HAND);
+        return true;
+    }
+
+    private static boolean attackNearestCrystal(Minecraft c, double range, boolean stopAbove) {
         AABB box = c.player.getBoundingBox().inflate(range);
-        List<EndCrystal> crystals = c.level.getEntitiesOfClass(EndCrystal.class, box,
-                e -> e.isAlive() && c.player.distanceToSqr(e) <= range * range);
+        List<EndCrystal> crystals = c.level.getEntitiesOfClass(EndCrystal.class, box, EndCrystal::isAlive);
+        EndCrystal best = null;
+        double bestDist = Double.MAX_VALUE;
         for (EndCrystal crystal : crystals) {
-            c.gameMode.attack(c.player, crystal);
-            c.player.swing(InteractionHand.MAIN_HAND);
-            return true;
+            if (stopAbove && isAbove(c, crystal.getY())) continue;
+            double d = c.player.distanceToSqr(crystal);
+            if (d <= range * range && d < bestDist) {
+                best = crystal;
+                bestDist = d;
+            }
         }
-        return false;
+        if (best == null) return false;
+        c.gameMode.attack(c.player, best);
+        c.player.swing(InteractionHand.MAIN_HAND);
+        return true;
     }
 
-    private static void anchorMacro(Minecraft c, CpvpConfig.Settings s) {
+    private static boolean crystalAbove(Minecraft c, BlockPos base) {
+        AABB box = new AABB(base.above());
+        return !c.level.getEntitiesOfClass(EndCrystal.class, box, EndCrystal::isAlive).isEmpty();
+    }
+
+    /** True when the player's feet are clearly higher than {@code surfaceY}. */
+    private static boolean isAbove(Minecraft c, double surfaceY) {
+        return c.player.getY() > surfaceY + ABOVE_MARGIN;
+    }
+
+    // ----------------------------------------------------------------- anchors
+
+    /** Place anchor -> charge once -> detonate with the chosen slot, repeating while use is held. */
+    private static boolean anchorMacro(Minecraft c, CpvpConfig.Settings s) {
         BlockHitResult aimed = blockHit(c);
-        if (aimed == null) return;
+        if (aimed == null) return false;
         BlockPos pos = findAnchorOrPlace(c, aimed);
-        if (pos == null) return;
-        if (!pos.equals(anchorSequencePos)) {
-            anchorSequencePos = pos.immutable();
-            anchorSequenceStage = 0;
-        }
-        if (!ready(System.currentTimeMillis(), lastAnchorStage, s.anchorMacroMinStageDelayTicks, s.anchorMacroMaxStageDelayTicks)) return;
+        if (pos == null) return placedAnchorThisTick;
 
         int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
-        if (s.anchorMacroAutoCharge && charges < 4) {
-            int glowstone = findHotbar(c, Items.GLOWSTONE);
-            if (glowstone < 0) return;
-            select(c, glowstone);
-            c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
-            lastAnchorStage = System.currentTimeMillis();
-            return;
+        if (charges < 1) {
+            if (!s.anchorMacroAutoCharge) return false;
+            return chargeAnchor(c, pos);
         }
-        if (!selectDetonator(c, s.anchorDetonatorSlot)) return;
-        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
-        lastAnchorStage = System.currentTimeMillis();
-        anchorSequenceStage++;
+        return detonateAnchor(c, pos, s.anchorDetonatorSlot);
     }
 
-    private static void safeAnchor(Minecraft c, CpvpConfig.Settings s) {
+    /**
+     * Protects the player before detonating the anchor under the crosshair: when the player is
+     * within the configured distance and has no solid block in between, a cover block is placed
+     * first. The anchor is never detonated unless the cover is verified.
+     */
+    private static boolean safeAnchor(Minecraft c, CpvpConfig.Settings s) {
         BlockPos pos = lookedAtAnchor(c);
-        if (pos == null) return;
-        if (s.safeAnchorProtectSelf && !hasSolidCoverBetween(c, c.player.blockPosition(), pos)) {
+        if (pos == null) return false;
+
+        double dist = c.player.position().distanceTo(Vec3.atCenterOf(pos));
+        boolean needsCover = s.safeAnchorProtectSelf && dist < s.safeAnchorSelfDistance;
+        if (needsCover && !hasSolidCoverBetween(c, c.player.blockPosition(), pos)) {
             BlockPos cover = coverPosition(c.player.blockPosition(), pos);
             if (cover != null && c.level.getBlockState(cover).isAir()
                     && c.level.getBlockState(cover.below()).isSolid()) {
@@ -204,47 +242,57 @@ public final class CombatModuleEngine {
                             Vec3.atCenterOf(support).add(0, 0.5, 0),
                             Direction.UP, support, false);
                     c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
-                    return;
+                    return true;
                 }
             }
-            // Never detonate if the protection block could not be placed and verified.
-            return;
+            return false;
         }
-        
-        if (!selectDetonator(c, s.anchorDetonatorSlot)) return;
-        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
-        lastAnchorStage = System.currentTimeMillis();
-    }
-
-    private static void doubleAnchor(Minecraft c, CpvpConfig.Settings s) {
-        BlockHitResult aimed = blockHit(c);
-        if (aimed == null) {
-            doubleAnchorPass = 0;
-            return;
-        }
-        BlockPos pos = findAnchorOrPlace(c, aimed);
-        if (pos == null) return;
-        if (!ready(System.currentTimeMillis(), lastAnchorStage, s.doubleAnchorMinStageDelayTicks, s.doubleAnchorMaxStageDelayTicks)) return;
 
         int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
-        if (charges < 4) {
-            int glowstone = findHotbar(c, Items.GLOWSTONE);
-            if (glowstone < 0) return;
-            select(c, glowstone);
-            c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
-        } else {
-            if (!selectDetonator(c, s.anchorDetonatorSlot)) return;
-            c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
-            doubleAnchorPass++;
-            if (doubleAnchorPass >= s.doubleAnchorPasses) doubleAnchorPass = 0;
-            // After the anchor is detonated, the next held-use tick can place a fresh one
-            // at the same adjacent position. Server state is re-checked before each pass.
-            anchorSequencePos = pos.immutable();
-        }
-        lastAnchorStage = System.currentTimeMillis();
+        if (charges < 1) return chargeAnchor(c, pos);
+        return detonateAnchor(c, pos, s.anchorDetonatorSlot);
     }
 
+    /**
+     * Runs {@code doubleAnchorPasses} place -> charge -> detonate cycles per held click, then
+     * waits until use is released.
+     */
+    private static boolean doubleAnchor(Minecraft c, CpvpConfig.Settings s) {
+        if (doubleAnchorDone) return false;
+        BlockHitResult aimed = blockHit(c);
+        if (aimed == null) return false;
+        BlockPos pos = findAnchorOrPlace(c, aimed);
+        if (pos == null) return placedAnchorThisTick;
+
+        int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
+        if (charges < 1) return chargeAnchor(c, pos);
+
+        if (!detonateAnchor(c, pos, s.anchorDetonatorSlot)) return false;
+        doubleAnchorPass++;
+        if (doubleAnchorPass >= s.doubleAnchorPasses) doubleAnchorDone = true;
+        return true;
+    }
+
+    private static boolean chargeAnchor(Minecraft c, BlockPos pos) {
+        int glowstone = findHotbar(c, Items.GLOWSTONE);
+        if (glowstone < 0) return false;
+        select(c, glowstone);
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
+        return true;
+    }
+
+    private static boolean detonateAnchor(Minecraft c, BlockPos pos, int preferredSlot) {
+        if (!selectDetonator(c, preferredSlot)) return false;
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
+        return true;
+    }
+
+    /**
+     * Returns the anchor position when an anchor is already there. Otherwise sends a placement
+     * (setting {@link #placedAnchorThisTick}) and returns null.
+     */
     private static BlockPos findAnchorOrPlace(Minecraft c, BlockHitResult aimed) {
+        placedAnchorThisTick = false;
         BlockPos aimedPos = aimed.getBlockPos();
         if (c.level.getBlockState(aimedPos).is(Blocks.RESPAWN_ANCHOR)) return aimedPos;
         BlockPos placePos = aimedPos.relative(aimed.getDirection());
@@ -253,13 +301,14 @@ public final class CombatModuleEngine {
         if (anchorSlot < 0 || !c.level.getBlockState(placePos).canBeReplaced()) return null;
         select(c, anchorSlot);
         c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, aimed);
+        placedAnchorThisTick = true;
         return null;
     }
 
     private static BlockPos coverPosition(BlockPos player, BlockPos anchor) {
         int dx = anchor.getX() - player.getX();
-        int dy = anchor.getY() - player.getY();
         int dz = anchor.getZ() - player.getZ();
+        if (dx == 0 && dz == 0) return null;
         if (Math.abs(dx) >= Math.abs(dz)) {
             return new BlockPos(player.getX() + Integer.signum(dx), player.getY(), player.getZ());
         }
@@ -269,6 +318,7 @@ public final class CombatModuleEngine {
     private static int findSolidBlock(Minecraft c) {
         for (int i = 0; i < 9; i++) {
             Item item = c.player.getInventory().getItem(i).getItem();
+            if (item == Items.GLOWSTONE || item == Items.RESPAWN_ANCHOR || item == Items.TNT) continue;
             if (item instanceof BlockItem blockItem
                     && blockItem.getBlock().defaultBlockState().isSolid()) return i;
         }
@@ -302,6 +352,8 @@ public final class CombatModuleEngine {
         return new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false);
     }
 
+    // ----------------------------------------------------------------- helpers
+
     private static BlockHitResult blockHit(Minecraft c) {
         return c.hitResult instanceof BlockHitResult hit && hit.getType() == HitResult.Type.BLOCK
                 ? hit : null;
@@ -313,21 +365,23 @@ public final class CombatModuleEngine {
     }
 
     private static boolean selectDetonator(Minecraft c, int preferredSlot) {
-        if (preferredSlot >= 0 && preferredSlot < 9) {
-            var stack = c.player.getInventory().getItem(preferredSlot);
-            if (!stack.is(Items.GLOWSTONE) && !stack.is(Items.RESPAWN_ANCHOR)) {
-                select(c, preferredSlot);
-                return true;
-            }
+        if (preferredSlot >= 0 && preferredSlot < 9 && isDetonator(c, preferredSlot)) {
+            select(c, preferredSlot);
+            return true;
         }
         for (int slot = 0; slot < 9; slot++) {
-            var stack = c.player.getInventory().getItem(slot);
-            if (!stack.is(Items.GLOWSTONE) && !stack.is(Items.RESPAWN_ANCHOR)) {
+            if (isDetonator(c, slot)) {
                 select(c, slot);
                 return true;
             }
         }
         return false;
+    }
+
+    /** Anything except the charging/placing items works as a detonator (an empty hand too). */
+    private static boolean isDetonator(Minecraft c, int slot) {
+        var stack = c.player.getInventory().getItem(slot);
+        return !stack.is(Items.GLOWSTONE) && !stack.is(Items.RESPAWN_ANCHOR);
     }
 
     private static int findHotbar(Minecraft c, Item item) {
@@ -341,9 +395,17 @@ public final class CombatModuleEngine {
         if (slot >= 0 && slot < 9) c.player.getInventory().setSelectedSlot(slot);
     }
 
-    private static void resetSequences() {
-        anchorSequencePos = null;
-        anchorSequenceStage = 0;
+    /** Called whenever use is released, a GUI opens, or the world goes away. */
+    private static void resetHoldState() {
+        AUTO.reset();
+        HIT.reset();
+        MACRO.reset();
+        MACRO_STAGE.reset();
+        SAFE.reset();
+        DOUBLE.reset();
+        DOUBLE_STAGE.reset();
         doubleAnchorPass = 0;
+        doubleAnchorDone = false;
+        placedAnchorThisTick = false;
     }
 }

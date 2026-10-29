@@ -20,7 +20,7 @@ public final class CpvpClient implements ClientModInitializer {
         CpvpConfig.load();
         // The GUI opener is a normal Minecraft Controls-menu binding.
         menu = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.cpvp.open_menu", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_9, CATEGORY));
+                "key.cpvp.open_menu", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_INSERT, CATEGORY));
 
         ClientTickEvents.START_CLIENT_TICK.register(TotemSwapEngine::tick);
 
@@ -30,10 +30,12 @@ public final class CpvpClient implements ClientModInitializer {
             }
 
             CpvpModule[] modules = CpvpModule.values();
-            boolean editingSettings = c.gui.screen() instanceof ModuleSettingsScreen;
+            // Module toggle keys only react in-game: typing in chat or binding a key in the
+            // settings screen must never flip a module.
+            boolean inGame = c.player != null && c.gui.screen() == null;
             for (int i = 0; i < modules.length; i++) {
                 int bind = modules[i].bind(CpvpConfig.settings());
-                boolean down = !editingSettings && isBindDown(c, bind);
+                boolean down = inGame && isBindDown(c, bind);
                 if (down && !wasDown[i]) {
                     var settings = CpvpConfig.settings();
                     modules[i].setEnabled(settings, !modules[i].enabled(settings));
