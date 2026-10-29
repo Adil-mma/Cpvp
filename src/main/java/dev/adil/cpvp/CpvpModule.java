@@ -1,22 +1,26 @@
 package dev.adil.cpvp;
 
 public enum CpvpModule {
-    FAST_CRYSTAL("Fast Crystal", Group.CRYSTAL),
-    AUTO_CRYSTAL("Auto Crystal", Group.CRYSTAL),
-    HIT_CRYSTAL("Hit Crystal", Group.CRYSTAL),
-    AUTO_TOTEM("Auto Totem", Group.CRYSTAL),
-    ANCHOR_MACRO("Anchor Macro", Group.ANCHOR),
-    SAFE_ANCHOR("Safe Anchor", Group.ANCHOR),
-    DOUBLE_ANCHOR("Double Anchor", Group.ANCHOR),
-    TOTEM_SWAP("Totem Swap", Group.ANCHOR);
+    FAST_CRYSTAL("Fast Crystal", "Fast Cristal", Group.CRYSTAL),
+    AUTO_CRYSTAL("Auto Crystal", "Auto Cristal", Group.CRYSTAL),
+    HIT_CRYSTAL("Hit Crystal", "Hit Cristal", Group.CRYSTAL),
+    AUTO_TOTEM("Auto Totem", "Auto Totem", Group.CRYSTAL),
+    ANCHOR_MACRO("Anchor Macro", "Anchor Macro", Group.ANCHOR),
+    SAFE_ANCHOR("Safe Anchor", "Safe Anchor", Group.ANCHOR),
+    DOUBLE_ANCHOR("Double Anchor", "Double Anchor", Group.ANCHOR),
+    TOTEM_SWAP("Totem Swap", "Totem Swap", Group.ANCHOR);
 
     public enum Group { CRYSTAL, ANCHOR, UTILITY }
 
+    /** Name used in chat messages and settings titles. */
     public final String title;
+    /** Name shown in the main menu (spelling follows the reference screenshot). */
+    public final String label;
     public final Group group;
 
-    CpvpModule(String title, Group group) {
+    CpvpModule(String title, String label, Group group) {
         this.title = title;
+        this.label = label;
         this.group = group;
     }
 
