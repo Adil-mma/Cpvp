@@ -95,6 +95,8 @@ public final class CpvpConfig {
         public int doubleAnchorMinStageDelayTicks = 1;
         public int doubleAnchorMaxStageDelayTicks = 2;
         public int doubleAnchorPasses = 2;
+        /** Hotbar slot used to detonate each Double Anchor pass (default slot 9). */
+        public int doubleAnchorTotemSlot = 8;
 
         public int totemSwapMinDelayTicks = 1;
         public int totemSwapMaxDelayTicks = 2;
@@ -105,6 +107,7 @@ public final class CpvpConfig {
             totemBackupSlot = clamp(totemBackupSlot, 0, 8);
             anchorDetonatorSlot = clamp(anchorDetonatorSlot, 0, 8);
             doubleAnchorPasses = clamp(doubleAnchorPasses, 2, 4);
+            doubleAnchorTotemSlot = clamp(doubleAnchorTotemSlot, 0, 8);
             autoCrystalRange = clamp(autoCrystalRange, 1.0, 6.0);
             hitCrystalRange = clamp(hitCrystalRange, 1.0, 8.0);
             safeAnchorSelfDistance = clamp(safeAnchorSelfDistance, 2.0, 8.0);

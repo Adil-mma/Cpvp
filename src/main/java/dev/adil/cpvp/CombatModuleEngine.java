@@ -41,8 +41,13 @@ public final class CombatModuleEngine {
 
     private static int doubleAnchorPass;
     private static boolean doubleAnchorDone;
-    /** Set by {@link #findAnchorOrPlace} when it sent a placement this tick. */
-    private static boolean placedAnchorThisTick;
+    private enum DoubleAnchorPhase {
+        WAIT_FIRST_ANCHOR, CHARGE, DETONATE, WAIT_EXPLOSION, PLACE_NEXT, WAIT_NEXT_ANCHOR, DONE
+    }
+    private static DoubleAnchorPhase doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
+    private static BlockPos doubleAnchorPos;
+    private static BlockPos doubleAnchorSupport;
+    private static Direction doubleAnchorPlaceFace;
 
     private CombatModuleEngine() {}
 
@@ -284,23 +289,119 @@ public final class CombatModuleEngine {
     }
 
     /**
-     * Runs the configured number of charge -> detonate passes. The player manually places
-     * each next anchor; the macro never switches to or places an anchor.
+     * The player places the first anchor manually. Double Anchor then charges it, detonates
+     * with the configured totem slot, and automatically places the next anchor at the same
+     * support face until the configured number of explosions has been completed.
      */
     private static boolean doubleAnchor(Minecraft c, CpvpConfig.Settings s) {
-        if (doubleAnchorDone) return false;
+        if (doubleAnchorDone || doubleAnchorPhase == DoubleAnchorPhase.DONE) return false;
 
-        // Each pass starts only after the player has manually placed the next anchor.
-        BlockPos pos = lookedAtAnchor(c);
-        if (pos == null) return false;
+        switch (doubleAnchorPhase) {
+            case WAIT_FIRST_ANCHOR -> {
+                BlockPos first = lookedAtAnchor(c);
+                if (first == null) return false;
+                doubleAnchorPos = first;
+                if (!captureDoubleAnchorSupport(c, first)) {
+                    resetDoubleAnchorProgress();
+                    return false;
+                }
+                doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
+                return false;
+            }
+            case CHARGE -> {
+                if (doubleAnchorPos == null
+                        || !c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                    return false;
+                }
+                int charges = c.level.getBlockState(doubleAnchorPos).getValue(RespawnAnchorBlock.CHARGE);
+                if (charges < 1) return chargeAnchor(c, doubleAnchorPos);
+                doubleAnchorPhase = DoubleAnchorPhase.DETONATE;
+                return false;
+            }
+            case DETONATE -> {
+                if (doubleAnchorPos == null
+                        || !c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                    doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
+                    return false;
+                }
+                int charges = c.level.getBlockState(doubleAnchorPos).getValue(RespawnAnchorBlock.CHARGE);
+                if (charges < 1) {
+                    doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
+                    return false;
+                }
+                if (!detonateAnchorWithTotem(c, doubleAnchorPos, s.doubleAnchorTotemSlot)) return false;
+                doubleAnchorPhase = DoubleAnchorPhase.WAIT_EXPLOSION;
+                return true;
+            }
+            case WAIT_EXPLOSION -> {
+                // Wait for the server to confirm that the anchor has been removed.
+                if (doubleAnchorPos != null
+                        && c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                    return false;
+                }
+                doubleAnchorPass++;
+                if (doubleAnchorPass >= s.doubleAnchorPasses) {
+                    doubleAnchorDone = true;
+                    doubleAnchorPhase = DoubleAnchorPhase.DONE;
+                } else {
+                    doubleAnchorPhase = DoubleAnchorPhase.PLACE_NEXT;
+                }
+                return false;
+            }
+            case PLACE_NEXT -> {
+                if (doubleAnchorPos == null || doubleAnchorSupport == null
+                        || doubleAnchorPlaceFace == null) return false;
+                BlockPos placePos = doubleAnchorSupport.relative(doubleAnchorPlaceFace);
+                if (!placePos.equals(doubleAnchorPos)
+                        || !c.level.getBlockState(placePos).canBeReplaced()
+                        || !c.level.getBlockState(doubleAnchorSupport).isSolid()) {
+                    return false;
+                }
+                int anchorSlot = findHotbar(c, Items.RESPAWN_ANCHOR);
+                if (anchorSlot < 0) return false;
+                select(c, anchorSlot);
+                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND,
+                        placementHit(doubleAnchorSupport, doubleAnchorPlaceFace));
+                doubleAnchorPhase = DoubleAnchorPhase.WAIT_NEXT_ANCHOR;
+                return true;
+            }
+            case WAIT_NEXT_ANCHOR -> {
+                if (doubleAnchorPos != null
+                        && c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                    doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
+                }
+                return false;
+            }
+            case DONE -> {
+                return false;
+            }
+        }
+        return false;
+    }
 
-        int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
-        if (charges < 1) return chargeAnchor(c, pos);
+    /** Remember the support face of the first manually placed anchor for subsequent placements. */
+    private static boolean captureDoubleAnchorSupport(Minecraft c, BlockPos anchorPos) {
+        Direction[] order = {
+                Direction.DOWN, Direction.NORTH, Direction.SOUTH,
+                Direction.WEST, Direction.EAST, Direction.UP
+        };
+        for (Direction direction : order) {
+            BlockPos support = anchorPos.relative(direction);
+            if (c.level.getBlockState(support).isSolid()) {
+                doubleAnchorSupport = support;
+                doubleAnchorPlaceFace = direction.getOpposite();
+                return true;
+            }
+        }
+        return false;
+    }
 
-        if (!detonateAnchor(c, pos, s.anchorDetonatorSlot)) return false;
-        doubleAnchorPass++;
-        if (doubleAnchorPass >= s.doubleAnchorPasses) doubleAnchorDone = true;
-        return true;
+    private static BlockHitResult placementHit(BlockPos support, Direction face) {
+        Vec3 point = Vec3.atCenterOf(support).add(
+                face.getStepX() * 0.5,
+                face.getStepY() * 0.5,
+                face.getStepZ() * 0.5);
+        return new BlockHitResult(point, face, support, false);
     }
 
     private static boolean chargeAnchor(Minecraft c, BlockPos pos) {
@@ -323,24 +424,6 @@ public final class CombatModuleEngine {
         if (!selectDetonator(c, preferredSlot)) return false;
         c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
         return true;
-    }
-
-    /**
-     * Returns the anchor position when an anchor is already there. Otherwise sends a placement
-     * (setting {@link #placedAnchorThisTick}) and returns null.
-     */
-    private static BlockPos findAnchorOrPlace(Minecraft c, BlockHitResult aimed) {
-        placedAnchorThisTick = false;
-        BlockPos aimedPos = aimed.getBlockPos();
-        if (c.level.getBlockState(aimedPos).is(Blocks.RESPAWN_ANCHOR)) return aimedPos;
-        BlockPos placePos = aimedPos.relative(aimed.getDirection());
-        if (c.level.getBlockState(placePos).is(Blocks.RESPAWN_ANCHOR)) return placePos;
-        int anchorSlot = findHotbar(c, Items.RESPAWN_ANCHOR);
-        if (anchorSlot < 0 || !c.level.getBlockState(placePos).canBeReplaced()) return null;
-        select(c, anchorSlot);
-        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, aimed);
-        placedAnchorThisTick = true;
-        return null;
     }
 
     private static BlockPos coverPosition(BlockPos player, BlockPos anchor) {
@@ -442,12 +525,15 @@ public final class CombatModuleEngine {
         SAFE.reset();
         DOUBLE.reset();
         DOUBLE_STAGE.reset();
-        placedAnchorThisTick = false;
     }
 
     /** A fresh Double Anchor sequence starts when the module is turned off or world changes. */
     private static void resetDoubleAnchorProgress() {
         doubleAnchorPass = 0;
         doubleAnchorDone = false;
+        doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
+        doubleAnchorPos = null;
+        doubleAnchorSupport = null;
+        doubleAnchorPlaceFace = null;
     }
 }

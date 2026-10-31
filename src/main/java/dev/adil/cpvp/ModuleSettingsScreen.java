@@ -32,7 +32,7 @@ public final class ModuleSettingsScreen extends Screen {
             case AUTO_TOTEM -> new String[] { "Toggle key", "Mode", "Backup hotbar slot" };
             case ANCHOR_MACRO -> new String[] { "Toggle key", "Action delay", "Stage delay", "Auto-charge", "Detonator hotbar slot" };
             case SAFE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Cover within distance", "Place glowstone cover", "Totem hotbar slot" };
-            case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Stage delay", "Macro passes", "Detonator hotbar slot" };
+            case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Stage delay", "Macro passes", "Totem hotbar slot" };
             case TOTEM_SWAP -> new String[] { "Toggle key", "Swap delay" };
         };
     }
@@ -80,7 +80,7 @@ public final class ModuleSettingsScreen extends Screen {
             case ANCHOR_MACRO -> row == 3 ? onOff(s.anchorMacroAutoCharge) : Integer.toString(s.anchorDetonatorSlot + 1);
             case SAFE_ANCHOR -> row == 2 ? fmt(s.safeAnchorSelfDistance) + " blocks"
                     : row == 3 ? onOff(s.safeAnchorProtectSelf) : Integer.toString(s.safeAnchorTotemSlot + 1);
-            case DOUBLE_ANCHOR -> row == 3 ? Integer.toString(s.doubleAnchorPasses) : Integer.toString(s.anchorDetonatorSlot + 1);
+            case DOUBLE_ANCHOR -> row == 3 ? Integer.toString(s.doubleAnchorPasses) : Integer.toString(s.doubleAnchorTotemSlot + 1);
             case TOTEM_SWAP -> boundsText(s.totemSwapMinDelayTicks, s.totemSwapMaxDelayTicks);
         };
     }
@@ -431,7 +431,7 @@ public final class ModuleSettingsScreen extends Screen {
             }
             case DOUBLE_ANCHOR -> {
                 if (row == 3) s.doubleAnchorPasses = 2;
-                else s.anchorDetonatorSlot = 0;
+                else s.doubleAnchorTotemSlot = 8;
             }
             case TOTEM_SWAP -> { }
         }
@@ -464,7 +464,7 @@ public final class ModuleSettingsScreen extends Screen {
             }
             case DOUBLE_ANCHOR -> {
                 if (row == 3) s.doubleAnchorPasses = wrap(s.doubleAnchorPasses + direction, 2, 4);
-                else if (row == 4) s.anchorDetonatorSlot = (s.anchorDetonatorSlot + direction + 9) % 9;
+                else if (row == 4) s.doubleAnchorTotemSlot = (s.doubleAnchorTotemSlot + direction + 9) % 9;
             }
             case TOTEM_SWAP -> { }
         }
