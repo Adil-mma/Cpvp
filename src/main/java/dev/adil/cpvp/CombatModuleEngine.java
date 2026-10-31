@@ -329,7 +329,13 @@ public final class CombatModuleEngine {
                     doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                     return false;
                 }
-                if (!detonateAnchorWithTotem(c, doubleAnchorPos, s.doubleAnchorTotemSlot)) return false;
+                int anchorSlot = findDoubleAnchorSlot(c, s);
+                if (anchorSlot < 0) return false;
+
+                // Second interaction: return to the anchor stack, click the charged
+                // anchor to detonate it, then reuse the same stack to place the next one.
+                select(c, anchorSlot);
+                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(doubleAnchorPos));
                 doubleAnchorPhase = DoubleAnchorPhase.WAIT_EXPLOSION;
                 return true;
             }
@@ -357,7 +363,7 @@ public final class CombatModuleEngine {
                         || !c.level.getBlockState(doubleAnchorSupport).isSolid()) {
                     return false;
                 }
-                int anchorSlot = findHotbar(c, Items.RESPAWN_ANCHOR);
+                int anchorSlot = findDoubleAnchorSlot(c, s);
                 if (anchorSlot < 0) return false;
                 select(c, anchorSlot);
                 c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND,
@@ -402,6 +408,15 @@ public final class CombatModuleEngine {
                 face.getStepY() * 0.5,
                 face.getStepZ() * 0.5);
         return new BlockHitResult(point, face, support, false);
+    }
+
+    private static int findDoubleAnchorSlot(Minecraft c, CpvpConfig.Settings s) {
+        int preferred = s.doubleAnchorAnchorSlot;
+        if (preferred >= 0 && preferred < 9
+                && c.player.getInventory().getItem(preferred).is(Items.RESPAWN_ANCHOR)) {
+            return preferred;
+        }
+        return findHotbar(c, Items.RESPAWN_ANCHOR);
     }
 
     private static boolean chargeAnchor(Minecraft c, BlockPos pos) {
