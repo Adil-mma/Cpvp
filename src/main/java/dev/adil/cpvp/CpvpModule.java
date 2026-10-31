@@ -8,7 +8,7 @@ public enum CpvpModule {
     ANCHOR_MACRO("Anchor Macro", "Anchor Macro", Group.ANCHOR),
     SAFE_ANCHOR("Safe Anchor", "Safe Anchor", Group.ANCHOR),
     DOUBLE_ANCHOR("Double Anchor", "Double Anchor", Group.ANCHOR),
-    TOTEM_SWAP("Totem Swap", "Totem Swap", Group.ANCHOR);
+    TOTEM_SWAP("Sword Swap", "Sword Swap", Group.ANCHOR);
 
     public enum Group { CRYSTAL, ANCHOR, UTILITY }
 
