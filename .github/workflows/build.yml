@@ -1,7 +1,7 @@
 name: Build Cpvp
 on:
   push:
-    branches: ["main", "cpvp-pvp-rebuild"]
+    branches: ["main", "cpvp-pvp-rebuild", "Cpvp-hack"]
   pull_request:
   workflow_dispatch:
 permissions:
