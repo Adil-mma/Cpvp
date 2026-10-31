@@ -1,17 +1,14 @@
 package dev.adil.cpvp;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.phys.EntityHitResult;
 
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Sword Swap: while the crosshair is on another player, temporarily selects the best
- * hotbar sword when the attack button is pressed with an eligible non-sword item.
- * Crystal, axes and pickaxes are intentionally ignored; the previous slot is restored.
+ * Temporarily swaps from the selected Totem of Undying to a hotbar sword
+ * when the attack button is pressed, then restores the original totem slot.
  */
 public final class TotemSwapEngine {
     private static boolean wasAttackDown;
@@ -37,7 +34,8 @@ public final class TotemSwapEngine {
         if (restoreAt >= 0) {
             int selected = player.getInventory().getSelectedSlot();
             if (selected != swordSlot) {
-                // Do not override a hotbar slot the player selected manually.
+                // The player changed their hotbar selection manually. Do not
+                // override their choice when the temporary swap timer expires.
                 clearPending();
             } else if (ticks >= restoreAt) {
                 if (originalSlot >= 0) player.getInventory().setSelectedSlot(originalSlot);
@@ -50,10 +48,10 @@ public final class TotemSwapEngine {
             return;
         }
 
-        if (attackDown && !wasAttackDown && restoreAt < 0 && lookingAtAnotherPlayer(c)) {
+        // Trigger on the press edge, not every client tick while the button is held.
+        if (attackDown && !wasAttackDown && restoreAt < 0) {
             int selected = player.getInventory().getSelectedSlot();
-            Item held = player.getInventory().getItem(selected).getItem();
-            if (!isSwapExempt(held) && swordTier(held) == 0) {
+            if (player.getInventory().getItem(selected).is(Items.TOTEM_OF_UNDYING)) {
                 int foundSword = findBestSword(c);
                 if (foundSword >= 0) {
                     originalSlot = selected;
@@ -63,28 +61,13 @@ public final class TotemSwapEngine {
                     int min = Math.max(0, Math.min(5, s.totemSwapMinDelayTicks));
                     int max = Math.max(min, Math.min(5, s.totemSwapMaxDelayTicks));
                     int delay = ThreadLocalRandom.current().nextInt(min, max + 1);
+                    // Restoration is checked on the next client tick, so even a
+                    // configured 0-tick delay permits the current attack tick.
                     restoreAt = ticks + delay;
                 }
             }
         }
         wasAttackDown = attackDown;
-    }
-
-    private static boolean lookingAtAnotherPlayer(Minecraft c) {
-        return c.hitResult instanceof EntityHitResult hit
-                && hit.getEntity() instanceof Player target
-                && target != c.player
-                && target.isAlive();
-    }
-
-    private static boolean isSwapExempt(Item item) {
-        return item == Items.END_CRYSTAL
-                || item == Items.WOODEN_AXE || item == Items.STONE_AXE
-                || item == Items.IRON_AXE || item == Items.GOLDEN_AXE
-                || item == Items.DIAMOND_AXE || item == Items.NETHERITE_AXE
-                || item == Items.WOODEN_PICKAXE || item == Items.STONE_PICKAXE
-                || item == Items.IRON_PICKAXE || item == Items.GOLDEN_PICKAXE
-                || item == Items.DIAMOND_PICKAXE || item == Items.NETHERITE_PICKAXE;
     }
 
     private static int findBestSword(Minecraft c) {

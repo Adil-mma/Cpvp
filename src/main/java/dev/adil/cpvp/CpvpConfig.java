@@ -72,8 +72,8 @@ public final class CpvpConfig {
         public boolean autoCrystalStopAboveTarget = true;
 
         public double hitCrystalRange = 4.0;
-        public int hitCrystalMinDelayTicks = 0;
-        public int hitCrystalMaxDelayTicks = 1;
+        public int hitCrystalMinDelayTicks = 1;
+        public int hitCrystalMaxDelayTicks = 2;
         public boolean hitCrystalStopAboveTarget = true;
 
         public int anchorMacroMinDelayTicks = 1;
@@ -87,8 +87,6 @@ public final class CpvpConfig {
         public int safeAnchorMaxDelayTicks = 2;
         public double safeAnchorSelfDistance = 5.0;
         public boolean safeAnchorProtectSelf = true;
-        /** Hotbar index used to detonate a protected anchor with a totem (default slot 9). */
-        public int safeAnchorTotemSlot = 8;
 
         public int doubleAnchorMinDelayTicks = 1;
         public int doubleAnchorMaxDelayTicks = 2;
@@ -108,7 +106,6 @@ public final class CpvpConfig {
             autoCrystalRange = clamp(autoCrystalRange, 1.0, 6.0);
             hitCrystalRange = clamp(hitCrystalRange, 1.0, 8.0);
             safeAnchorSelfDistance = clamp(safeAnchorSelfDistance, 2.0, 8.0);
-            safeAnchorTotemSlot = clamp(safeAnchorTotemSlot, 0, 8);
 
             fastCrystalBind = clampBind(fastCrystalBind);
             autoCrystalBind = clampBind(autoCrystalBind);

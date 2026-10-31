@@ -5,9 +5,9 @@ import java.util.Random;
 /**
  * Tick-based rate limiter with no Minecraft dependencies.
  *
- * <p>A delay of {@code N} ticks is the interval between performed actions at 20 TPS:
- * 0 and 1 both allow the next available client tick, 2 leaves one full tick between
- * actions, and so on. When min != max a value is rolled once per performed action.
+ * <p>A delay of {@code N} ticks means "skip N client ticks after each performed action":
+ * 0 acts on every tick, 1 acts every 2nd tick, and so on. When min != max a value inside
+ * the inclusive range is rolled <em>once per performed action</em>.
  *
  * <p>Usage per tick: {@code if (gate.ready() && doAction()) gate.start(min, max);}
  * The gate only counts down while it is being queried, so it never advances while a
@@ -36,10 +36,7 @@ public final class TickGate {
     public void start(int minTicks, int maxTicks) {
         int min = clamp(minTicks);
         int max = Math.max(min, clamp(maxTicks));
-        int delay = min == max ? min : min + random.nextInt(max - min + 1);
-        // ready() is called once per client tick. Subtract one because the next
-        // available tick is already one tick after the action that started the gate.
-        remaining = Math.max(0, delay - 1);
+        remaining = min == max ? min : min + random.nextInt(max - min + 1);
     }
 
     public void reset() { remaining = 0; }

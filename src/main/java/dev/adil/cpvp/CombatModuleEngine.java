@@ -7,7 +7,6 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RespawnAnchorBlock;
@@ -28,7 +27,7 @@ import java.util.List;
  */
 public final class CombatModuleEngine {
     /** Player feet must be this far above the crystal/base surface to count as "above". */
-    private static final double ABOVE_MARGIN = 0.05;
+    private static final double ABOVE_MARGIN = 0.5;
 
     private static final TickGate FAST = new TickGate();
     private static final TickGate AUTO = new TickGate();
@@ -117,13 +116,6 @@ public final class CombatModuleEngine {
 
     /** Places a crystal on the obsidian/bedrock under the crosshair. */
     private static boolean fastCrystal(Minecraft c) {
-        // Do not steal right-click from a golden apple, pearl, or shield.
-        // Check both hands because these items are commonly kept in the offhand.
-        if (isFastCrystalPriorityItem(c.player.getMainHandItem())
-                || isFastCrystalPriorityItem(c.player.getOffhandItem())
-                || (c.player.isUsingItem() && isFastCrystalPriorityItem(c.player.getUseItem()))) {
-            return false;
-        }
         BlockHitResult hit = blockHit(c);
         if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return false;
         int crystalSlot = findHotbar(c, Items.END_CRYSTAL);
@@ -131,13 +123,6 @@ public final class CombatModuleEngine {
         select(c, crystalSlot);
         c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
         return true;
-    }
-
-    private static boolean isFastCrystalPriorityItem(ItemStack stack) {
-        return stack.is(Items.GOLDEN_APPLE)
-                || stack.is(Items.ENCHANTED_GOLDEN_APPLE)
-                || stack.is(Items.ENDER_PEARL)
-                || stack.is(Items.SHIELD);
     }
 
     /** Hold use: breaks the crystal in reach, otherwise places one on obsidian/bedrock. */
@@ -219,11 +204,12 @@ public final class CombatModuleEngine {
 
     // ----------------------------------------------------------------- anchors
 
-    /** Charge a manually placed anchor once and detonate with the chosen slot. */
+    /** Place anchor -> charge once -> detonate with the chosen slot, repeating while use is held. */
     private static boolean anchorMacro(Minecraft c, CpvpConfig.Settings s) {
-        // The player places the anchor manually. Cpvp only charges it once and detonates it.
-        BlockPos pos = lookedAtAnchor(c);
-        if (pos == null) return false;
+        BlockHitResult aimed = blockHit(c);
+        if (aimed == null) return false;
+        BlockPos pos = findAnchorOrPlace(c, aimed);
+        if (pos == null) return placedAnchorThisTick;
 
         int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
         if (charges < 1) {
@@ -234,58 +220,49 @@ public final class CombatModuleEngine {
     }
 
     /**
-     * Protects the player before detonating a manually placed anchor. If the player is close,
-     * it tries to put a glowstone block between the player and anchor and only detonates after
-     * the cover is verified. It uses the configured totem hotbar slot.
+     * Protects the player before detonating the anchor under the crosshair: when the player is
+     * within the configured distance and has no solid block in between, a cover block is placed
+     * first. The anchor is never detonated unless the cover is verified.
      */
     private static boolean safeAnchor(Minecraft c, CpvpConfig.Settings s) {
-        // Safe Anchor also expects the anchor to have been placed by the player.
         BlockPos pos = lookedAtAnchor(c);
         if (pos == null) return false;
 
-        int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
-        double distance = c.player.position().distanceTo(Vec3.atCenterOf(pos));
-        boolean needsCover = s.safeAnchorProtectSelf && distance < s.safeAnchorSelfDistance;
-
+        double dist = c.player.position().distanceTo(Vec3.atCenterOf(pos));
+        boolean needsCover = s.safeAnchorProtectSelf && dist < s.safeAnchorSelfDistance;
         if (needsCover && !hasSolidCoverBetween(c, c.player.blockPosition(), pos)) {
             BlockPos cover = coverPosition(c.player.blockPosition(), pos);
-            if (cover == null || !c.level.getBlockState(cover).canBeReplaced()
-                    || !c.level.getBlockState(cover.below()).isSolid()) {
-                // Do not detonate without the requested protection block.
-                return false;
+            if (cover != null && c.level.getBlockState(cover).isAir()
+                    && c.level.getBlockState(cover.below()).isSolid()) {
+                int blockSlot = findSolidBlock(c);
+                if (blockSlot >= 0) {
+                    select(c, blockSlot);
+                    BlockPos support = cover.below();
+                    BlockHitResult placeHit = new BlockHitResult(
+                            Vec3.atCenterOf(support).add(0, 0.5, 0),
+                            Direction.UP, support, false);
+                    c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
+                    return true;
+                }
             }
-
-            int glowstoneSlot = findHotbar(c, Items.GLOWSTONE);
-            if (glowstoneSlot < 0) return false;
-            int glowstoneCount = c.player.getInventory().getItem(glowstoneSlot).getCount();
-            // One glowstone is used for cover and another is needed if the anchor is uncharged.
-            int needed = charges < 1 ? 2 : 1;
-            if (glowstoneCount < needed) return false;
-
-            select(c, glowstoneSlot);
-            BlockPos support = cover.below();
-            BlockHitResult placeHit = new BlockHitResult(
-                    Vec3.atCenterOf(support).add(0, 0.5, 0),
-                    Direction.UP, support, false);
-            c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
-            return true;
+            return false;
         }
 
+        int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
         if (charges < 1) return chargeAnchor(c, pos);
-        // Safe Anchor always detonates with the configured totem slot (slot 9 by default).
-        return detonateAnchorWithTotem(c, pos, s.safeAnchorTotemSlot);
+        return detonateAnchor(c, pos, s.anchorDetonatorSlot);
     }
 
     /**
-     * Runs the configured number of charge -> detonate passes. The player manually places
-     * each next anchor; the macro never switches to or places an anchor.
+     * Runs {@code doubleAnchorPasses} place -> charge -> detonate cycles per held click, then
+     * waits until use is released.
      */
     private static boolean doubleAnchor(Minecraft c, CpvpConfig.Settings s) {
         if (doubleAnchorDone) return false;
-
-        // Each pass starts only after the player has manually placed the next anchor.
-        BlockPos pos = lookedAtAnchor(c);
-        if (pos == null) return false;
+        BlockHitResult aimed = blockHit(c);
+        if (aimed == null) return false;
+        BlockPos pos = findAnchorOrPlace(c, aimed);
+        if (pos == null) return placedAnchorThisTick;
 
         int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
         if (charges < 1) return chargeAnchor(c, pos);
@@ -300,14 +277,6 @@ public final class CombatModuleEngine {
         int glowstone = findHotbar(c, Items.GLOWSTONE);
         if (glowstone < 0) return false;
         select(c, glowstone);
-        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
-        return true;
-    }
-
-    private static boolean detonateAnchorWithTotem(Minecraft c, BlockPos pos, int preferredSlot) {
-        if (preferredSlot < 0 || preferredSlot > 8) return false;
-        if (!c.player.getInventory().getItem(preferredSlot).is(Items.TOTEM_OF_UNDYING)) return false;
-        select(c, preferredSlot);
         c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
         return true;
     }

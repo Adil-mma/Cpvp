@@ -10,14 +10,10 @@ import org.lwjgl.glfw.GLFW;
 public final class ModuleSettingsScreen extends Screen {
     private static final int MAX_BOX_W = 440;
     private static final int MIN_BOX_W = 360;
-    private static final int NORMAL_ROW_H = 34;
-    private static final int RANGE_ROW_H = 76;
-
+    private static final int ROW_H = 30;
     private final CpvpModule module;
     private int x, y, boxW, boxH;
     private boolean listeningForBind;
-    private int draggingRow = -1;
-    private int draggingBound = -1;
 
     public ModuleSettingsScreen(CpvpModule module) {
         super(Component.literal(module.title + " settings"));
@@ -30,10 +26,10 @@ public final class ModuleSettingsScreen extends Screen {
             case AUTO_CRYSTAL -> new String[] { "Toggle key", "Target range", "Delay range", "Stop above target" };
             case HIT_CRYSTAL -> new String[] { "Toggle key", "Hit range", "Delay range", "Stop above target" };
             case AUTO_TOTEM -> new String[] { "Toggle key", "Mode", "Backup hotbar slot" };
-            case ANCHOR_MACRO -> new String[] { "Toggle key", "Action delay", "Stage delay", "Auto-charge", "Detonator hotbar slot" };
-            case SAFE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Cover within distance", "Place glowstone cover", "Totem hotbar slot" };
-            case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Stage delay", "Macro passes", "Detonator hotbar slot" };
-            case TOTEM_SWAP -> new String[] { "Toggle key", "Swap delay" };
+            case ANCHOR_MACRO -> new String[] { "Toggle key", "Delay range", "Stage delay range", "Auto-charge", "Detonator hotbar slot" };
+            case SAFE_ANCHOR -> new String[] { "Toggle key", "Delay range", "Cover within distance", "Require solid cover" };
+            case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Delay range", "Stage delay range", "Macro passes", "Detonator hotbar slot" };
+            case TOTEM_SWAP -> new String[] { "Toggle key", "Swap delay range" };
         };
     }
 
@@ -78,10 +74,9 @@ public final class ModuleSettingsScreen extends Screen {
             case HIT_CRYSTAL -> row == 1 ? fmt(s.hitCrystalRange) + " blocks" : onOff(s.hitCrystalStopAboveTarget);
             case AUTO_TOTEM -> row == 1 ? s.autoTotemMode : Integer.toString(s.totemBackupSlot + 1);
             case ANCHOR_MACRO -> row == 3 ? onOff(s.anchorMacroAutoCharge) : Integer.toString(s.anchorDetonatorSlot + 1);
-            case SAFE_ANCHOR -> row == 2 ? fmt(s.safeAnchorSelfDistance) + " blocks"
-                    : row == 3 ? onOff(s.safeAnchorProtectSelf) : Integer.toString(s.safeAnchorTotemSlot + 1);
+            case SAFE_ANCHOR -> row == 2 ? fmt(s.safeAnchorSelfDistance) + " blocks" : onOff(s.safeAnchorProtectSelf);
             case DOUBLE_ANCHOR -> row == 3 ? Integer.toString(s.doubleAnchorPasses) : Integer.toString(s.anchorDetonatorSlot + 1);
-            case TOTEM_SWAP -> boundsText(s.totemSwapMinDelayTicks, s.totemSwapMaxDelayTicks);
+            case TOTEM_SWAP -> "1 - 2 ticks";
         };
     }
 
@@ -91,7 +86,7 @@ public final class ModuleSettingsScreen extends Screen {
             case FAST_CRYSTAL -> new int[] { s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks };
             case AUTO_CRYSTAL -> new int[] { s.autoCrystalMinDelayTicks, s.autoCrystalMaxDelayTicks };
             case HIT_CRYSTAL -> new int[] { s.hitCrystalMinDelayTicks, s.hitCrystalMaxDelayTicks };
-            case AUTO_TOTEM -> new int[] { 1, 2 };
+            case AUTO_TOTEM -> new int[] {1, 2};
             case ANCHOR_MACRO -> row == 1
                     ? new int[] { s.anchorMacroMinDelayTicks, s.anchorMacroMaxDelayTicks }
                     : new int[] { s.anchorMacroMinStageDelayTicks, s.anchorMacroMaxStageDelayTicks };
@@ -102,8 +97,6 @@ public final class ModuleSettingsScreen extends Screen {
             case TOTEM_SWAP -> new int[] { s.totemSwapMinDelayTicks, s.totemSwapMaxDelayTicks };
         };
     }
-
-    private static String boundsText(int min, int max) { return min + " - " + max + " ticks"; }
 
     private static String keyName(int bind) {
         if (bind == -1) return "UNBOUND";
@@ -143,15 +136,7 @@ public final class ModuleSettingsScreen extends Screen {
     private static String onOff(boolean v) { return v ? "ON" : "OFF"; }
     private static String fmt(double v) { return String.format(java.util.Locale.ROOT, "%.1f", v); }
 
-    private int rowHeight(int row) { return isRangeRow(row) ? RANGE_ROW_H : NORMAL_ROW_H; }
-
-    private int rowsHeight() {
-        int total = 0;
-        for (int i = 0; i < labels().length; i++) total += rowHeight(i);
-        return total;
-    }
-
-    private int contentHeight() { return 46 + rowsHeight() + 36; }
+    private int contentHeight() { return 42 + labels().length * ROW_H + 36; }
 
     private void layout() {
         boxW = Math.max(MIN_BOX_W, Math.min(MAX_BOX_W, width - 20));
@@ -160,20 +145,8 @@ public final class ModuleSettingsScreen extends Screen {
         y = Math.max(8, (height - boxH) / 2);
     }
 
-    private int rowY(int row) {
-        int at = y + 38;
-        for (int i = 0; i < row; i++) at += rowHeight(i);
-        return at;
-    }
-
-    private int resetX() { return x + boxW - 28; }
-    private int sliderStartX() { return x + 28; }
-    private int sliderEndX() { return x + boxW - 42; }
-    private int sliderY(int row) { return rowY(row) + 43; }
-
-    private int sliderX(int value) {
-        return sliderStartX() + Math.round((sliderEndX() - sliderStartX()) * value / 5.0f);
-    }
+    private int rowY(int row) { return y + 34 + row * ROW_H; }
+    private int resetX() { return x + boxW - 30; }
 
     @Override
     protected void init() { layout(); }
@@ -187,86 +160,55 @@ public final class ModuleSettingsScreen extends Screen {
         g.fill(x + 1, y + 1, x + boxW / 2, y + 3, 0xFF55D7F5);
         g.fill(x + boxW / 2, y + 1, x + boxW - 1, y + 3, 0xFFB56BFF);
         g.text(font, Component.literal(module.title.toUpperCase(java.util.Locale.ROOT) + " SETTINGS"),
-                x + 14, y + 14, 0xFF9BB6FF, true);
+                x + 14, y + 13, 0xFF9BB6FF, true);
 
         String[] names = labels();
         for (int i = 0; i < names.length; i++) {
             int ry = rowY(i);
-            int rh = rowHeight(i);
             boolean hovered = mx >= x + 10 && mx <= x + boxW - 10
-                    && my >= ry && my < ry + rh - 2;
-            g.fill(x + 10, ry, x + boxW - 10, ry + rh - 2,
+                    && my >= ry && my < ry + ROW_H - 2;
+            g.fill(x + 10, ry, x + boxW - 10, ry + ROW_H - 2,
                     hovered ? 0xFF282D38 : 0xFF090B0F);
-            g.outline(x + 10, ry, boxW - 20, rh - 2, 0xFF303542);
+            g.outline(x + 10, ry, boxW - 20, ROW_H - 2, 0xFF303542);
+            g.text(font, Component.literal(names[i]), x + 18, ry + 10, 0xFFE0D6C9, false);
 
-            if (isRangeRow(i)) {
+            if (isBindRow(i)) {
+                int color = listeningForBind ? 0xFFFFC56D : 0xFF9BB6FF;
+                g.text(font, Component.literal(value(i)), x + 142, ry + 10, color, false);
+            } else if (isRangeRow(i)) {
                 int[] bounds = delayBounds(i);
-                g.text(font, Component.literal(names[i]), x + 18, ry + 8, 0xFFE0D6C9, false);
-                g.text(font, Component.literal(boundsText(bounds[0], bounds[1])),
-                        x + boxW - 146, ry + 8, 0xFF9BB6FF, false);
-                drawSlider(g, ry, i, bounds[0], bounds[1]);
+                g.text(font, Component.literal("Min"), x + 137, ry + 10, 0xFF9BB6FF, false);
+                g.text(font, Component.literal("−"), x + 166, ry + 9, 0xFF97AFFF, true);
+                g.text(font, Component.literal(Integer.toString(bounds[0])), x + 184, ry + 10, 0xFFE0D6C9, false);
+                g.text(font, Component.literal("+"), x + 202, ry + 9, 0xFF97AFFF, true);
+                g.text(font, Component.literal("Max"), x + 225, ry + 10, 0xFF9BB6FF, false);
+                g.text(font, Component.literal("−"), x + 257, ry + 9, 0xFF97AFFF, true);
+                g.text(font, Component.literal(Integer.toString(bounds[1])), x + 275, ry + 10, 0xFFE0D6C9, false);
+                g.text(font, Component.literal("+"), x + 293, ry + 9, 0xFF97AFFF, true);
+            } else if (isToggleRow(i)) {
+                String v = value(i);
+                int color = v.equals("ON") ? 0xFF73E0A0 : 0xFFDBA86A;
+                g.text(font, Component.literal(v), x + boxW - 76, ry + 10, color, true);
             } else {
-                g.text(font, Component.literal(names[i]), x + 18, ry + 11, 0xFFE0D6C9, false);
-                if (isBindRow(i)) {
-                    int color = listeningForBind ? 0xFFFFC56D : 0xFF9BB6FF;
-                    g.text(font, Component.literal(value(i)), x + 142, ry + 11, color, false);
-                } else if (isToggleRow(i)) {
-                    String v = value(i);
-                    int color = v.equals("ON") ? 0xFF73E0A0 : 0xFFDBA86A;
-                    g.text(font, Component.literal(v), x + boxW - 76, ry + 11, color, true);
-                } else {
-                    int controlsX = x + boxW - 118;
-                    g.text(font, Component.literal("−"), controlsX, ry + 10, 0xFF97AFFF, true);
-                    g.text(font, Component.literal(value(i)), controlsX + 20, ry + 11, 0xFFE0D6C9, false);
-                    g.text(font, Component.literal("+"), x + boxW - 49, ry + 10, 0xFF97AFFF, true);
-                }
+                int controlsX = x + boxW - 118;
+                g.text(font, Component.literal("−"), controlsX, ry + 9, 0xFF97AFFF, true);
+                g.text(font, Component.literal(value(i)), controlsX + 20, ry + 10, 0xFFE0D6C9, false);
+                g.text(font, Component.literal("+"), x + boxW - 49, ry + 9, 0xFF97AFFF, true);
             }
 
             boolean resetHover = mx >= resetX() - 2 && mx < x + boxW - 10
-                    && my >= ry && my < ry + rh - 2;
-            g.text(font, Component.literal("↺"), resetX(), ry + (isRangeRow(i) ? 8 : 11),
+                    && my >= ry && my < ry + ROW_H - 2;
+            g.text(font, Component.literal("↺"), resetX(), ry + 9,
                     resetHover ? 0xFFFF7777 : 0xFFE0B45D, true);
         }
 
-        int footerY = y + 42 + rowsHeight();
+        int footerY = y + 38 + names.length * ROW_H;
         g.text(font, Component.literal(listeningForBind
                         ? "Press a key. Press ESC to cancel. Click a mouse button to bind it."
-                        : "Drag either handle. 0–5 ticks; 1 tick ≈ 50 ms at 20 TPS."),
+                        : "Each row has its own reset arrow. Delay ranges: 0–5 ticks."),
                 x + 14, footerY, listeningForBind ? 0xFFFFC56D : 0xFF8ADBA4, false);
         g.text(font, Component.literal("ESC: back"), x + 14, footerY + 14, 0xFFB9BEC8, false);
         super.extractRenderState(g, mx, my, pt);
-    }
-
-    private void drawSlider(GuiGraphicsExtractor g, int rowY, int row, int min, int max) {
-        int start = sliderStartX();
-        int end = sliderEndX();
-        int cy = sliderY(row);
-        int minX = sliderX(min);
-        int maxX = sliderX(max);
-
-        g.fill(start, cy - 5, end, cy + 5, 0xFFD0D8E1);
-        g.fill(minX, cy - 4, maxX + 1, cy + 4, 0xFF19AEBB);
-        drawCircle(g, minX, cy, 14, 0x3325B7C3);
-        drawCircle(g, maxX, cy, 14, 0x3325B7C3);
-        drawCircle(g, minX, cy, 11, 0xFFE9EEF4);
-        drawCircle(g, maxX, cy, 11, 0xFFE9EEF4);
-        drawCircle(g, minX, cy, 8, 0xFF149BA8);
-        drawCircle(g, maxX, cy, 8, 0xFF149BA8);
-        drawCircle(g, minX, cy, 5, 0xFF13B8C5);
-        drawCircle(g, maxX, cy, 5, 0xFF13B8C5);
-
-        for (int value = 0; value <= 5; value++) {
-            int tx = sliderX(value);
-            g.text(font, Component.literal(Integer.toString(value)), tx - 3, cy + 16, 
-                    value >= min && value <= max ? 0xFFCEDBE8 : 0xFF777F8D, false);
-        }
-    }
-
-    private static void drawCircle(GuiGraphicsExtractor g, int cx, int cy, int radius, int color) {
-        for (int dy = -radius; dy <= radius; dy++) {
-            int half = (int) Math.floor(Math.sqrt(radius * radius - dy * dy));
-            g.fill(cx - half, cy + dy, cx + half + 1, cy + dy + 1, color);
-        }
     }
 
     @Override
@@ -301,8 +243,7 @@ public final class ModuleSettingsScreen extends Screen {
         String[] names = labels();
         for (int row = 0; row < names.length; row++) {
             int ry = rowY(row);
-            int rh = rowHeight(row);
-            if (mx < x + 10 || mx > x + boxW - 10 || my < ry || my >= ry + rh - 2) continue;
+            if (mx < x + 10 || mx > x + boxW - 10 || my < ry || my >= ry + ROW_H - 2) continue;
 
             if (mx >= resetX() - 2) {
                 resetSetting(row);
@@ -317,16 +258,13 @@ public final class ModuleSettingsScreen extends Screen {
             }
 
             if (isRangeRow(row)) {
-                int[] bounds = delayBounds(row);
-                int minX = sliderX(bounds[0]);
-                int maxX = sliderX(bounds[1]);
-                draggingBound = Math.abs(mx - minX) <= Math.abs(mx - maxX) ? 0 : 1;
-                draggingRow = row;
-                updateSliderFromMouse(row, draggingBound, mx);
-                return true;
-            }
-
-            if (isToggleRow(row)) {
+                int bound = (mx >= x + 220) ? 1 : 0;
+                int direction;
+                if (mx >= x + (bound == 0 ? 198 : 289)) direction = 1;
+                else if (mx >= x + (bound == 0 ? 162 : 253)) direction = -1;
+                else direction = button == 1 ? -1 : 1;
+                changeRange(row, bound, direction);
+            } else if (isToggleRow(row)) {
                 changeSetting(row, 1);
             } else {
                 int controlsX = x + boxW - 122;
@@ -344,34 +282,18 @@ public final class ModuleSettingsScreen extends Screen {
         return super.mouseClicked(event, doubleClick);
     }
 
-    @Override
-    public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
-        if (draggingRow >= 0 && draggingBound >= 0) {
-            updateSliderFromMouse(draggingRow, draggingBound, event.x());
-            return true;
-        }
-        return super.mouseDragged(event, deltaX, deltaY);
-    }
-
-    @Override
-    public boolean mouseReleased(MouseButtonEvent event) {
-        if (draggingRow >= 0) {
-            draggingRow = -1;
-            draggingBound = -1;
-            return true;
-        }
-        return super.mouseReleased(event);
-    }
-
-    private void updateSliderFromMouse(int row, int bound, double mouseX) {
-        double start = sliderStartX();
-        double end = sliderEndX();
-        int next = (int) Math.round(Math.max(0, Math.min(1, (mouseX - start) / (end - start))) * 5.0);
+    private void changeRange(int row, int bound, int direction) {
+        CpvpConfig.Settings s = CpvpConfig.settings();
         int[] values = delayBounds(row);
-        if (bound == 0) values[0] = Math.min(next, values[1]);
-        else values[1] = Math.max(next, values[0]);
+        int next = Math.max(0, Math.min(5, values[bound] + direction));
+        if (bound == 0) {
+            values[0] = next;
+            if (values[0] > values[1]) values[1] = values[0];
+        } else {
+            values[1] = next;
+            if (values[1] < values[0]) values[0] = values[1];
+        }
         setDelayBounds(row, values[0], values[1]);
-        CpvpConfig.save();
     }
 
     private void setDelayBounds(int row, int min, int max) {
@@ -401,8 +323,7 @@ public final class ModuleSettingsScreen extends Screen {
             return;
         }
         if (isRangeRow(row)) {
-            if (module == CpvpModule.HIT_CRYSTAL) setDelayBounds(row, 0, 1);
-            else setDelayBounds(row, 1, 2);
+            setDelayBounds(row, 1, 2);
             return;
         }
 
@@ -426,8 +347,7 @@ public final class ModuleSettingsScreen extends Screen {
             }
             case SAFE_ANCHOR -> {
                 if (row == 2) s.safeAnchorSelfDistance = 5.0;
-                else if (row == 3) s.safeAnchorProtectSelf = true;
-                else s.safeAnchorTotemSlot = 8;
+                else s.safeAnchorProtectSelf = true;
             }
             case DOUBLE_ANCHOR -> {
                 if (row == 3) s.doubleAnchorPasses = 2;
@@ -460,7 +380,6 @@ public final class ModuleSettingsScreen extends Screen {
             case SAFE_ANCHOR -> {
                 if (row == 2) s.safeAnchorSelfDistance = clamp(s.safeAnchorSelfDistance + direction * 0.5, 2, 8);
                 else if (row == 3) s.safeAnchorProtectSelf = !s.safeAnchorProtectSelf;
-                else if (row == 4) s.safeAnchorTotemSlot = (s.safeAnchorTotemSlot + direction + 9) % 9;
             }
             case DOUBLE_ANCHOR -> {
                 if (row == 3) s.doubleAnchorPasses = wrap(s.doubleAnchorPasses + direction, 2, 4);
