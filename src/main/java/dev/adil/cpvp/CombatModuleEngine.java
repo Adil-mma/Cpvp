@@ -47,20 +47,28 @@ public final class CombatModuleEngine {
     private CombatModuleEngine() {}
 
     public static void tick(Minecraft c) {
+        CpvpConfig.Settings s = CpvpConfig.settings();
+
+        // Disabling Double Anchor starts a fresh pass counter next time it is enabled.
+        if (!s.doubleAnchorEnabled) resetDoubleAnchorProgress();
+
         if (c.player == null || c.level == null || c.gameMode == null || c.player.isSpectator()) {
             resetHoldState();
+            resetDoubleAnchorProgress();
             return;
         }
-        // Never act through a GUI (chat, inventory, the Cpvp menu ...).
+        // Never act through a GUI. Keep the Double Anchor pass count so opening
+        // inventory to select/place the next anchor does not restart the sequence.
         if (c.gui.screen() != null) {
             resetHoldState();
             return;
         }
 
-        CpvpConfig.Settings s = CpvpConfig.settings();
         boolean useHeld = c.options.keyUse.isDown();
 
         if (!useHeld) {
+            // Release resets per-action timers, but not Double Anchor's number of
+            // completed anchors. The user must release use to select/place the next.
             resetHoldState();
             if (s.fastCrystalEnabled && !s.fastCrystalOnlyWhileHolding && FAST.ready()
                     && fastCrystal(c)) {
@@ -78,7 +86,6 @@ public final class CombatModuleEngine {
             int min = s.autoCrystalMinDelayTicks;
             int max = s.autoCrystalMaxDelayTicks;
             if (s.fastCrystalEnabled) {
-                // Fast Crystal only ever makes Auto Crystal faster, never slower.
                 min = Math.min(min, s.fastCrystalMinDelayTicks);
                 max = Math.min(max, s.fastCrystalMaxDelayTicks);
                 if (min > max) min = max;
@@ -90,8 +97,8 @@ public final class CombatModuleEngine {
             }
         }
 
-        // Anchor modes are mutually exclusive (CpvpModule.setEnabled); if an older config file
-        // has several enabled, Safe Anchor wins over Double Anchor, which wins over Macro.
+        // Anchor modes are mutually exclusive. Double Anchor can retain its
+        // multi-anchor pass count while use is released to manually place the next one.
         if (s.safeAnchorEnabled) {
             if (SAFE.ready() && safeAnchor(c, s)) {
                 SAFE.start(s.safeAnchorMinDelayTicks, s.safeAnchorMaxDelayTicks);
@@ -426,7 +433,7 @@ public final class CombatModuleEngine {
         if (slot >= 0 && slot < 9) c.player.getInventory().setSelectedSlot(slot);
     }
 
-    /** Called whenever use is released, a GUI opens, or the world goes away. */
+    /** Resets stage timers on release or GUI changes, but preserves Double Anchor progress. */
     private static void resetHoldState() {
         AUTO.reset();
         HIT.reset();
@@ -435,8 +442,12 @@ public final class CombatModuleEngine {
         SAFE.reset();
         DOUBLE.reset();
         DOUBLE_STAGE.reset();
+        placedAnchorThisTick = false;
+    }
+
+    /** A fresh Double Anchor sequence starts when the module is turned off or world changes. */
+    private static void resetDoubleAnchorProgress() {
         doubleAnchorPass = 0;
         doubleAnchorDone = false;
-        placedAnchorThisTick = false;
     }
 }
