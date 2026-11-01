@@ -39,6 +39,13 @@ public final class CombatModuleEngine {
     private static final TickGate DOUBLE = new TickGate();
     private static final TickGate DOUBLE_STAGE = new TickGate();
 
+    private enum SafeAnchorPhase { WAIT_ANCHOR, CHARGE, COVER, DETONATE, WAIT_DETONATION }
+    private static SafeAnchorPhase safeAnchorPhase = SafeAnchorPhase.WAIT_ANCHOR;
+    private static BlockPos safeAnchorPos;
+    private static BlockPos safeAnchorCover;
+    private static int safeAnchorCoverAttempts;
+    private static int safeAnchorDetonationWait;
+
     private static int doubleAnchorPass;
     private static boolean doubleAnchorDone;
     private enum DoubleAnchorPhase {
@@ -54,16 +61,17 @@ public final class CombatModuleEngine {
     public static void tick(Minecraft c) {
         CpvpConfig.Settings s = CpvpConfig.settings();
 
-        // Disabling Double Anchor starts a fresh pass counter next time it is enabled.
+        // Turning a module off clears its retained state so the next activation starts cleanly.
+        if (!s.safeAnchorEnabled) resetSafeAnchorProgress();
         if (!s.doubleAnchorEnabled) resetDoubleAnchorProgress();
 
         if (c.player == null || c.level == null || c.gameMode == null || c.player.isSpectator()) {
             resetHoldState();
+            resetSafeAnchorProgress();
             resetDoubleAnchorProgress();
             return;
         }
-        // Never act through a GUI. Keep the Double Anchor pass count so opening
-        // inventory to select/place the next anchor does not restart the sequence.
+        // Keep multi-step anchor phases while a GUI is open, but do not interact through it.
         if (c.gui.screen() != null) {
             resetHoldState();
             return;
@@ -72,13 +80,15 @@ public final class CombatModuleEngine {
         boolean useHeld = c.options.keyUse.isDown();
 
         if (!useHeld) {
-            // Release resets per-action timers, but not Double Anchor's number of
-            // completed anchors. The user must release use to select/place the next.
             resetHoldState();
             if (s.fastCrystalEnabled && !s.fastCrystalOnlyWhileHolding && FAST.ready()
                     && fastCrystal(c)) {
                 FAST.start(s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks);
             }
+
+            // Safe Anchor and Double Anchor are state machines: they must continue after
+            // the initial manual anchor placement even when the player releases right-click.
+            processAnchorModules(c, s);
             return;
         }
 
@@ -102,23 +112,21 @@ public final class CombatModuleEngine {
             }
         }
 
-        // Anchor modes are mutually exclusive. Double Anchor can retain its
-        // multi-anchor pass count while use is released to manually place the next one.
+        processAnchorModules(c, s);
+    }
+
+    private static void processAnchorModules(Minecraft c, CpvpConfig.Settings s) {
         if (s.safeAnchorEnabled) {
             if (SAFE.ready() && safeAnchor(c, s)) {
                 SAFE.start(s.safeAnchorMinDelayTicks, s.safeAnchorMaxDelayTicks);
             }
         } else if (s.doubleAnchorEnabled) {
-            boolean main = DOUBLE.ready();
-            boolean stage = DOUBLE_STAGE.ready();
-            if (main && stage && doubleAnchor(c, s)) {
+            if (DOUBLE.ready() && DOUBLE_STAGE.ready() && doubleAnchor(c, s)) {
                 DOUBLE.start(s.doubleAnchorMinDelayTicks, s.doubleAnchorMaxDelayTicks);
                 DOUBLE_STAGE.start(s.doubleAnchorMinStageDelayTicks, s.doubleAnchorMaxStageDelayTicks);
             }
-        } else if (s.anchorMacroEnabled) {
-            boolean main = MACRO.ready();
-            boolean stage = MACRO_STAGE.ready();
-            if (main && stage && anchorMacro(c, s)) {
+        } else if (s.anchorMacroEnabled && c.options.keyUse.isDown()) {
+            if (MACRO.ready() && MACRO_STAGE.ready() && anchorMacro(c, s)) {
                 MACRO.start(s.anchorMacroMinDelayTicks, s.anchorMacroMaxDelayTicks);
                 MACRO_STAGE.start(s.anchorMacroMinStageDelayTicks, s.anchorMacroMaxStageDelayTicks);
             }
@@ -246,46 +254,110 @@ public final class CombatModuleEngine {
     }
 
     /**
-     * Protects the player before detonating a manually placed anchor. If the player is close,
-     * it tries to put a glowstone block between the player and anchor and only detonates after
-     * the cover is verified. It uses the configured totem hotbar slot.
+     * Safe Anchor handles the complete sequence after the player manually places an anchor:
+     * charge it once, try to place an ordinary solid block between player and anchor while
+     * visibly turning the player's view, then look back and detonate with a totem.
      */
     private static boolean safeAnchor(Minecraft c, CpvpConfig.Settings s) {
-        // Safe Anchor also expects the anchor to have been placed by the player.
-        BlockPos pos = lookedAtAnchor(c);
-        if (pos == null) return false;
-
-        int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
-        double distance = c.player.position().distanceTo(Vec3.atCenterOf(pos));
-        boolean needsCover = s.safeAnchorProtectSelf && distance < s.safeAnchorSelfDistance;
-
-        if (needsCover && !hasSolidCoverBetween(c, c.player.blockPosition(), pos)) {
-            BlockPos cover = coverPosition(c.player.blockPosition(), pos);
-            if (cover == null || !c.level.getBlockState(cover).canBeReplaced()
-                    || !c.level.getBlockState(cover.below()).isSolid()) {
-                // Do not detonate without the requested protection block.
-                return false;
-            }
-
-            int glowstoneSlot = findHotbar(c, Items.GLOWSTONE);
-            if (glowstoneSlot < 0) return false;
-            int glowstoneCount = c.player.getInventory().getItem(glowstoneSlot).getCount();
-            // One glowstone is used for cover and another is needed if the anchor is uncharged.
-            int needed = charges < 1 ? 2 : 1;
-            if (glowstoneCount < needed) return false;
-
-            select(c, glowstoneSlot);
-            BlockPos support = cover.below();
-            BlockHitResult placeHit = new BlockHitResult(
-                    Vec3.atCenterOf(support).add(0, 0.5, 0),
-                    Direction.UP, support, false);
-            c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
-            return true;
+        if (safeAnchorPhase == SafeAnchorPhase.WAIT_ANCHOR) {
+            BlockPos aimedAnchor = lookedAtAnchor(c);
+            if (aimedAnchor == null) return false;
+            safeAnchorPos = aimedAnchor;
+            safeAnchorPhase = SafeAnchorPhase.CHARGE;
+            safeAnchorCover = null;
+            safeAnchorCoverAttempts = 0;
+            safeAnchorDetonationWait = 0;
         }
 
-        if (charges < 1) return chargeAnchor(c, pos);
-        // Safe Anchor always detonates with the configured totem slot (slot 9 by default).
-        return detonateAnchorWithTotem(c, pos, s.safeAnchorTotemSlot);
+        if (safeAnchorPos == null
+                || !c.level.getBlockState(safeAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+            resetSafeAnchorProgress();
+            return false;
+        }
+
+        switch (safeAnchorPhase) {
+            case WAIT_ANCHOR -> {
+                return false;
+            }
+            case CHARGE -> {
+                int charges = c.level.getBlockState(safeAnchorPos)
+                        .getValue(RespawnAnchorBlock.CHARGE);
+                if (charges < 1) {
+                    lookAt(c, Vec3.atCenterOf(safeAnchorPos));
+                    return chargeAnchor(c, safeAnchorPos);
+                }
+                safeAnchorPhase = SafeAnchorPhase.COVER;
+                return false;
+            }
+            case COVER -> {
+                double distance = c.player.position().distanceTo(Vec3.atCenterOf(safeAnchorPos));
+                boolean shouldProtect = s.safeAnchorProtectSelf
+                        && distance < s.safeAnchorSelfDistance;
+
+                if (!shouldProtect
+                        || hasSolidCoverBetween(c, c.player.blockPosition(), safeAnchorPos)
+                        || (safeAnchorCover != null
+                            && c.level.getBlockState(safeAnchorCover).isSolid())) {
+                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    return false;
+                }
+
+                if (safeAnchorCover == null) {
+                    safeAnchorCover = coverPosition(c.player.blockPosition(), safeAnchorPos);
+                }
+
+                if (safeAnchorCover == null
+                        || !c.level.getBlockState(safeAnchorCover).canBeReplaced()
+                        || !c.level.getBlockState(safeAnchorCover.below()).isSolid()) {
+                    // Protection is best-effort: if no valid placement exists, continue with
+                    // the requested totem detonation instead of getting stuck indefinitely.
+                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    return false;
+                }
+
+                int blockSlot = findSolidBlock(c);
+                if (blockSlot < 0 || safeAnchorCoverAttempts >= 3) {
+                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    return false;
+                }
+
+                select(c, blockSlot);
+                BlockHitResult placeHit = placementHit(safeAnchorCover.below(), Direction.UP);
+                // Aim at the actual support face first; this is a visible player rotation,
+                // not a spoofed or silent interaction.
+                lookAt(c, placeHit.getLocation());
+                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
+                safeAnchorCoverAttempts++;
+                return true;
+            }
+            case DETONATE -> {
+                int charges = c.level.getBlockState(safeAnchorPos)
+                        .getValue(RespawnAnchorBlock.CHARGE);
+                if (charges < 1) {
+                    safeAnchorPhase = SafeAnchorPhase.CHARGE;
+                    return false;
+                }
+                lookAt(c, Vec3.atCenterOf(safeAnchorPos));
+                if (!detonateAnchorWithTotem(c, safeAnchorPos, s.safeAnchorTotemSlot)) return false;
+                safeAnchorPhase = SafeAnchorPhase.WAIT_DETONATION;
+                safeAnchorDetonationWait = 0;
+                return true;
+            }
+            case WAIT_DETONATION -> {
+                if (!c.level.getBlockState(safeAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                    resetSafeAnchorProgress();
+                    return false;
+                }
+                // If the server rejected the interaction, retry after a short wait rather than
+                // spamming the anchor every client tick.
+                if (++safeAnchorDetonationWait >= 8) {
+                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    safeAnchorDetonationWait = 0;
+                }
+                return false;
+            }
+        }
+        return false;
     }
 
     /**
@@ -488,6 +560,16 @@ public final class CombatModuleEngine {
         return new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false);
     }
 
+    /** Rotate the real player view toward a world-space target before sending an interaction. */
+    private static void lookAt(Minecraft c, Vec3 target) {
+        Vec3 delta = target.subtract(c.player.getEyePosition());
+        double horizontal = Math.sqrt(delta.x * delta.x + delta.z * delta.z);
+        float yaw = (float) (Math.toDegrees(Math.atan2(delta.z, delta.x)) - 90.0);
+        float pitch = (float) -Math.toDegrees(Math.atan2(delta.y, horizontal));
+        c.player.setYRot(yaw);
+        c.player.setXRot(pitch);
+    }
+
     // ----------------------------------------------------------------- helpers
 
     private static BlockHitResult blockHit(Minecraft c) {
@@ -531,15 +613,21 @@ public final class CombatModuleEngine {
         if (slot >= 0 && slot < 9) c.player.getInventory().setSelectedSlot(slot);
     }
 
-    /** Resets stage timers on release or GUI changes, but preserves Double Anchor progress. */
+    /** Resets hold-only module timers on release or GUI changes. */
     private static void resetHoldState() {
         AUTO.reset();
         HIT.reset();
         MACRO.reset();
         MACRO_STAGE.reset();
+    }
+
+    private static void resetSafeAnchorProgress() {
+        safeAnchorPhase = SafeAnchorPhase.WAIT_ANCHOR;
+        safeAnchorPos = null;
+        safeAnchorCover = null;
+        safeAnchorCoverAttempts = 0;
+        safeAnchorDetonationWait = 0;
         SAFE.reset();
-        DOUBLE.reset();
-        DOUBLE_STAGE.reset();
     }
 
     /** A fresh Double Anchor sequence starts when the module is turned off or world changes. */
@@ -550,5 +638,7 @@ public final class CombatModuleEngine {
         doubleAnchorPos = null;
         doubleAnchorSupport = null;
         doubleAnchorPlaceFace = null;
+        DOUBLE.reset();
+        DOUBLE_STAGE.reset();
     }
 }
