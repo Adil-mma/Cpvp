@@ -54,8 +54,6 @@ public final class CombatModuleEngine {
     }
     private static DoubleAnchorPhase doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
     private static BlockPos doubleAnchorPos;
-    private static BlockPos doubleAnchorSupport;
-    private static Direction doubleAnchorPlaceFace;
     private static int doubleAnchorWaitTicks;
     private static int doubleAnchorDetonationAttempts;
     private static int doubleAnchorPlacementAttempts;
@@ -480,8 +478,6 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                doubleAnchorSupport = placeHit.getBlockPos();
-                doubleAnchorPlaceFace = placeHit.getDirection();
                 select(c, anchorSlot);
                 lookAt(c, placeHit.getLocation());
                 c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
@@ -523,22 +519,6 @@ public final class CombatModuleEngine {
         doubleAnchorPhase = DoubleAnchorPhase.DONE;
     }
 
-    /** Remember the support face of the first manually placed anchor for subsequent placements. */
-    private static boolean captureDoubleAnchorSupport(Minecraft c, BlockPos anchorPos) {
-        Direction[] order = {
-                Direction.DOWN, Direction.NORTH, Direction.SOUTH,
-                Direction.WEST, Direction.EAST, Direction.UP
-        };
-        for (Direction direction : order) {
-            BlockPos support = anchorPos.relative(direction);
-            if (c.level.getBlockState(support).isSolid()) {
-                doubleAnchorSupport = support;
-                doubleAnchorPlaceFace = direction.getOpposite();
-                return true;
-            }
-        }
-        return false;
-    }
 
     private static BlockHitResult placementHit(BlockPos support, Direction face) {
         Vec3 point = Vec3.atCenterOf(support).add(
@@ -550,7 +530,9 @@ public final class CombatModuleEngine {
 
     /** Find a real solid neighbour face that places a block into the requested target cell. */
     private static BlockHitResult findPlacementHit(Minecraft c, BlockPos target) {
-        if (target == null || !c.level.getBlockState(target).canBeReplaced()) return null;
+        // The target may be either an existing anchor (support discovery) or an empty
+        // replacement cell (placement); callers validate replaceability when required.
+        if (target == null) return null;
         Direction[] order = {
                 Direction.DOWN, Direction.NORTH, Direction.SOUTH,
                 Direction.WEST, Direction.EAST, Direction.UP
@@ -708,8 +690,6 @@ public final class CombatModuleEngine {
         doubleAnchorDone = false;
         doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
         doubleAnchorPos = null;
-        doubleAnchorSupport = null;
-        doubleAnchorPlaceFace = null;
         doubleAnchorWaitTicks = 0;
         doubleAnchorDetonationAttempts = 0;
         doubleAnchorPlacementAttempts = 0;
