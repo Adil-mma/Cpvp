@@ -2,6 +2,7 @@ package dev.adil.cpvp;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
@@ -55,6 +56,9 @@ public final class CombatModuleEngine {
     private static BlockPos doubleAnchorPos;
     private static BlockPos doubleAnchorSupport;
     private static Direction doubleAnchorPlaceFace;
+    private static int doubleAnchorWaitTicks;
+    private static int doubleAnchorDetonationAttempts;
+    private static int doubleAnchorPlacementAttempts;
 
     private CombatModuleEngine() {}
 
@@ -254,17 +258,17 @@ public final class CombatModuleEngine {
     }
 
     /**
-     * Safe Anchor handles the complete sequence after the player manually places an anchor:
-     * charge it once, try to place an ordinary solid block between player and anchor while
-     * visibly turning the player's view, then look back and detonate with a totem.
+     * Safe Anchor charges a manually placed anchor with glowstone, optionally places
+     * one glowstone block at the fixed cover position, then looks back and detonates
+     * with the configured totem slot.
      */
     private static boolean safeAnchor(Minecraft c, CpvpConfig.Settings s) {
         if (safeAnchorPhase == SafeAnchorPhase.WAIT_ANCHOR) {
             BlockPos aimedAnchor = lookedAtAnchor(c);
             if (aimedAnchor == null) return false;
             safeAnchorPos = aimedAnchor;
+            safeAnchorCover = coverPosition(c.player.blockPosition(), aimedAnchor);
             safeAnchorPhase = SafeAnchorPhase.CHARGE;
-            safeAnchorCover = null;
             safeAnchorCoverAttempts = 0;
             safeAnchorDetonationWait = 0;
         }
@@ -283,7 +287,7 @@ public final class CombatModuleEngine {
                 int charges = c.level.getBlockState(safeAnchorPos)
                         .getValue(RespawnAnchorBlock.CHARGE);
                 if (charges < 1) {
-                    lookAt(c, Vec3.atCenterOf(safeAnchorPos));
+                    // Keep the existing view: the player should already be looking at the anchor.
                     return chargeAnchor(c, safeAnchorPos);
                 }
                 safeAnchorPhase = SafeAnchorPhase.COVER;
@@ -302,29 +306,27 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                if (safeAnchorCover == null) {
-                    safeAnchorCover = coverPosition(c.player.blockPosition(), safeAnchorPos);
-                }
-
+                // Do not substitute obsidian or another block: the cover item is Glowstone.
+                int glowstoneSlot = findHotbar(c, Items.GLOWSTONE);
                 if (safeAnchorCover == null
                         || !c.level.getBlockState(safeAnchorCover).canBeReplaced()
-                        || !c.level.getBlockState(safeAnchorCover.below()).isSolid()) {
-                    // Protection is best-effort: if no valid placement exists, continue with
-                    // the requested totem detonation instead of getting stuck indefinitely.
+                        || c.player.getBoundingBox().intersects(new AABB(safeAnchorCover))
+                        || glowstoneSlot < 0
+                        || safeAnchorCoverAttempts >= 1) {
+                    // No valid placement: do not rotate the camera. Continue to the anchor.
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
                     return false;
                 }
 
-                int blockSlot = findSolidBlock(c);
-                if (blockSlot < 0 || safeAnchorCoverAttempts >= 3) {
+                BlockHitResult placeHit = findPlacementHit(c, safeAnchorCover);
+                if (placeHit == null
+                        || c.player.getEyePosition().distanceToSqr(placeHit.getLocation()) > 4.5 * 4.5) {
+                    // No reachable support face for this exact cell: do not turn.
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
                     return false;
                 }
 
-                select(c, blockSlot);
-                BlockHitResult placeHit = placementHit(safeAnchorCover.below(), Direction.UP);
-                // Aim at the actual support face first; this is a visible player rotation,
-                // not a spoofed or silent interaction.
+                select(c, glowstoneSlot);
                 lookAt(c, placeHit.getLocation());
                 c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
                 safeAnchorCoverAttempts++;
@@ -337,6 +339,7 @@ public final class CombatModuleEngine {
                     safeAnchorPhase = SafeAnchorPhase.CHARGE;
                     return false;
                 }
+                // Return the visible view to the anchor before using the totem.
                 lookAt(c, Vec3.atCenterOf(safeAnchorPos));
                 if (!detonateAnchorWithTotem(c, safeAnchorPos, s.safeAnchorTotemSlot)) return false;
                 safeAnchorPhase = SafeAnchorPhase.WAIT_DETONATION;
@@ -348,8 +351,6 @@ public final class CombatModuleEngine {
                     resetSafeAnchorProgress();
                     return false;
                 }
-                // If the server rejected the interaction, retry after a short wait rather than
-                // spamming the anchor every client tick.
                 if (++safeAnchorDetonationWait >= 8) {
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
                     safeAnchorDetonationWait = 0;
@@ -361,9 +362,9 @@ public final class CombatModuleEngine {
     }
 
     /**
-     * The player places the first anchor manually. Double Anchor then charges it, detonates
-     * with the configured totem slot, and automatically places the next anchor at the same
-     * support face until the configured number of explosions has been completed.
+     * The player places the first anchor manually. The module charges it, clicks it while
+     * holding the Respawn Anchor stack, waits for the explosion, then places the next anchor
+     * in the exact same cell. Every network-dependent phase has a bounded retry count.
      */
     private static boolean doubleAnchor(Minecraft c, CpvpConfig.Settings s) {
         if (doubleAnchorDone || doubleAnchorPhase == DoubleAnchorPhase.DONE) return false;
@@ -373,80 +374,137 @@ public final class CombatModuleEngine {
                 BlockPos first = lookedAtAnchor(c);
                 if (first == null) return false;
                 doubleAnchorPos = first;
-                if (!captureDoubleAnchorSupport(c, first)) {
-                    resetDoubleAnchorProgress();
+                BlockHitResult supportHit = findPlacementHit(c, first);
+                if (supportHit == null) {
+                    failDoubleAnchor(c, "No solid support face found under/around the first anchor.");
                     return false;
                 }
+                doubleAnchorSupport = supportHit.getBlockPos();
+                doubleAnchorPlaceFace = supportHit.getDirection();
+                doubleAnchorWaitTicks = 0;
+                doubleAnchorDetonationAttempts = 0;
+                doubleAnchorPlacementAttempts = 0;
                 doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                 return false;
             }
             case CHARGE -> {
                 if (doubleAnchorPos == null
                         || !c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                    doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
+                    doubleAnchorPos = null;
                     return false;
                 }
-                int charges = c.level.getBlockState(doubleAnchorPos).getValue(RespawnAnchorBlock.CHARGE);
+                int charges = c.level.getBlockState(doubleAnchorPos)
+                        .getValue(RespawnAnchorBlock.CHARGE);
                 if (charges < 1) return chargeAnchor(c, doubleAnchorPos);
+                doubleAnchorWaitTicks = 0;
+                doubleAnchorDetonationAttempts = 0;
                 doubleAnchorPhase = DoubleAnchorPhase.DETONATE;
                 return false;
             }
             case DETONATE -> {
                 if (doubleAnchorPos == null
                         || !c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
-                    doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
+                    doubleAnchorPhase = DoubleAnchorPhase.WAIT_EXPLOSION;
+                    doubleAnchorWaitTicks = 0;
                     return false;
                 }
-                int charges = c.level.getBlockState(doubleAnchorPos).getValue(RespawnAnchorBlock.CHARGE);
+                int charges = c.level.getBlockState(doubleAnchorPos)
+                        .getValue(RespawnAnchorBlock.CHARGE);
                 if (charges < 1) {
                     doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                     return false;
                 }
                 int anchorSlot = findDoubleAnchorSlot(c, s);
-                if (anchorSlot < 0) return false;
+                if (anchorSlot < 0) {
+                    failDoubleAnchor(c, "Respawn Anchor stack not found in the hotbar.");
+                    return false;
+                }
 
-                // Second interaction: return to the anchor stack, click the charged
-                // anchor to detonate it, then reuse the same stack to place the next one.
                 select(c, anchorSlot);
+                lookAt(c, Vec3.atCenterOf(doubleAnchorPos));
                 c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(doubleAnchorPos));
                 doubleAnchorPhase = DoubleAnchorPhase.WAIT_EXPLOSION;
+                doubleAnchorWaitTicks = 0;
+                doubleAnchorDetonationAttempts++;
                 return true;
             }
             case WAIT_EXPLOSION -> {
-                // Wait for the server to confirm that the anchor has been removed.
-                if (doubleAnchorPos != null
-                        && c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                if (doubleAnchorPos == null
+                        || !c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                    doubleAnchorPass++;
+                    doubleAnchorWaitTicks = 0;
+                    doubleAnchorDetonationAttempts = 0;
+                    if (doubleAnchorPass >= s.doubleAnchorPasses) {
+                        doubleAnchorDone = true;
+                        doubleAnchorPhase = DoubleAnchorPhase.DONE;
+                    } else {
+                        doubleAnchorPhase = DoubleAnchorPhase.PLACE_NEXT;
+                    }
                     return false;
                 }
-                doubleAnchorPass++;
-                if (doubleAnchorPass >= s.doubleAnchorPasses) {
-                    doubleAnchorDone = true;
-                    doubleAnchorPhase = DoubleAnchorPhase.DONE;
-                } else {
-                    doubleAnchorPhase = DoubleAnchorPhase.PLACE_NEXT;
+
+                if (++doubleAnchorWaitTicks >= 12) {
+                    if (doubleAnchorDetonationAttempts < 3) {
+                        doubleAnchorPhase = DoubleAnchorPhase.DETONATE;
+                        doubleAnchorWaitTicks = 0;
+                    } else {
+                        failDoubleAnchor(c, "Anchor did not explode after 3 attempts. Check reach/server rules.");
+                    }
                 }
                 return false;
             }
             case PLACE_NEXT -> {
-                if (doubleAnchorPos == null || doubleAnchorSupport == null
-                        || doubleAnchorPlaceFace == null) return false;
-                BlockPos placePos = doubleAnchorSupport.relative(doubleAnchorPlaceFace);
-                if (!placePos.equals(doubleAnchorPos)
-                        || !c.level.getBlockState(placePos).canBeReplaced()
-                        || !c.level.getBlockState(doubleAnchorSupport).isSolid()) {
+                if (doubleAnchorPos == null) return false;
+                if (!c.level.getBlockState(doubleAnchorPos).canBeReplaced()) {
+                    if (++doubleAnchorWaitTicks >= 12) {
+                        failDoubleAnchor(c, "The original anchor cell is not empty after the explosion.");
+                    }
                     return false;
                 }
+
+                // Re-find a valid support face every time. An explosion may destroy the old
+                // support block; do not stay stuck using a stale support position.
+                BlockHitResult placeHit = findPlacementHit(c, doubleAnchorPos);
+                if (placeHit == null
+                        || c.player.getEyePosition().distanceToSqr(placeHit.getLocation()) > 4.5 * 4.5) {
+                    if (++doubleAnchorWaitTicks >= 12) {
+                        failDoubleAnchor(c, "Cannot reach a surviving solid face for the same anchor cell.");
+                    }
+                    return false;
+                }
+
                 int anchorSlot = findDoubleAnchorSlot(c, s);
-                if (anchorSlot < 0) return false;
+                if (anchorSlot < 0) {
+                    failDoubleAnchor(c, "Respawn Anchor stack not found in the hotbar.");
+                    return false;
+                }
+
+                doubleAnchorSupport = placeHit.getBlockPos();
+                doubleAnchorPlaceFace = placeHit.getDirection();
                 select(c, anchorSlot);
-                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND,
-                        placementHit(doubleAnchorSupport, doubleAnchorPlaceFace));
+                lookAt(c, placeHit.getLocation());
+                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
                 doubleAnchorPhase = DoubleAnchorPhase.WAIT_NEXT_ANCHOR;
+                doubleAnchorWaitTicks = 0;
+                doubleAnchorPlacementAttempts++;
                 return true;
             }
             case WAIT_NEXT_ANCHOR -> {
                 if (doubleAnchorPos != null
                         && c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
                     doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
+                    doubleAnchorWaitTicks = 0;
+                    doubleAnchorPlacementAttempts = 0;
+                    return false;
+                }
+                if (++doubleAnchorWaitTicks >= 12) {
+                    if (doubleAnchorPlacementAttempts < 3) {
+                        doubleAnchorPhase = DoubleAnchorPhase.PLACE_NEXT;
+                        doubleAnchorWaitTicks = 0;
+                    } else {
+                        failDoubleAnchor(c, "The next anchor was not placed after 3 attempts.");
+                    }
                 }
                 return false;
             }
@@ -455,6 +513,14 @@ public final class CombatModuleEngine {
             }
         }
         return false;
+    }
+
+    private static void failDoubleAnchor(Minecraft c, String reason) {
+        if (c.player != null) {
+            c.player.sendSystemMessage(Component.literal("[Cpvp] Double Anchor stopped: " + reason));
+        }
+        doubleAnchorDone = true;
+        doubleAnchorPhase = DoubleAnchorPhase.DONE;
     }
 
     /** Remember the support face of the first manually placed anchor for subsequent placements. */
@@ -480,6 +546,22 @@ public final class CombatModuleEngine {
                 face.getStepY() * 0.5,
                 face.getStepZ() * 0.5);
         return new BlockHitResult(point, face, support, false);
+    }
+
+    /** Find a real solid neighbour face that places a block into the requested target cell. */
+    private static BlockHitResult findPlacementHit(Minecraft c, BlockPos target) {
+        if (target == null || !c.level.getBlockState(target).canBeReplaced()) return null;
+        Direction[] order = {
+                Direction.DOWN, Direction.NORTH, Direction.SOUTH,
+                Direction.WEST, Direction.EAST, Direction.UP
+        };
+        for (Direction offset : order) {
+            BlockPos support = target.relative(offset);
+            if (!c.level.getBlockState(support).isSolid()) continue;
+            Direction face = offset.getOpposite();
+            return placementHit(support, face);
+        }
+        return null;
     }
 
     private static int findDoubleAnchorSlot(Minecraft c, CpvpConfig.Settings s) {
@@ -521,16 +603,6 @@ public final class CombatModuleEngine {
             return new BlockPos(player.getX() + Integer.signum(dx), player.getY(), player.getZ());
         }
         return new BlockPos(player.getX(), player.getY(), player.getZ() + Integer.signum(dz));
-    }
-
-    private static int findSolidBlock(Minecraft c) {
-        for (int i = 0; i < 9; i++) {
-            Item item = c.player.getInventory().getItem(i).getItem();
-            if (item == Items.GLOWSTONE || item == Items.RESPAWN_ANCHOR || item == Items.TNT) continue;
-            if (item instanceof BlockItem blockItem
-                    && blockItem.getBlock().defaultBlockState().isSolid()) return i;
-        }
-        return -1;
     }
 
     private static boolean hasSolidCoverBetween(Minecraft c, BlockPos player, BlockPos anchor) {
@@ -638,6 +710,9 @@ public final class CombatModuleEngine {
         doubleAnchorPos = null;
         doubleAnchorSupport = null;
         doubleAnchorPlaceFace = null;
+        doubleAnchorWaitTicks = 0;
+        doubleAnchorDetonationAttempts = 0;
+        doubleAnchorPlacementAttempts = 0;
         DOUBLE.reset();
         DOUBLE_STAGE.reset();
     }
