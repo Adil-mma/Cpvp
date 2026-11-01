@@ -59,6 +59,8 @@ public final class CombatModuleEngine {
     }
     private static DoubleAnchorPhase doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
     private static BlockPos doubleAnchorPos;
+    private static BlockPos doubleAnchorSupport;
+    private static Direction doubleAnchorSupportFace;
     private static int doubleAnchorWaitTicks;
     private static int doubleAnchorChargeAttempts;
     private static int doubleAnchorDetonationAttempts;
@@ -434,6 +436,8 @@ public final class CombatModuleEngine {
                     failDoubleAnchor(c, "No solid support face found under/around the first anchor.");
                     return false;
                 }
+                doubleAnchorSupport = supportHit.getBlockPos();
+                doubleAnchorSupportFace = supportHit.getDirection();
                 doubleAnchorWaitTicks = 0;
                 doubleAnchorDetonationAttempts = 0;
                 doubleAnchorPlacementAttempts = 0;
@@ -507,11 +511,19 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                select(c, anchorSlot);
-                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(doubleAnchorPos));
+                BlockHitResult detonateHit = anchorHit(doubleAnchorPos);
+                lookAt(c, detonateHit.getLocation());
+                var detonateResult = c.gameMode.useItemOn(
+                        c.player, InteractionHand.MAIN_HAND, detonateHit);
+                doubleAnchorDetonationAttempts++;
+                if (!detonateResult.consumesAction()) {
+                    if (doubleAnchorDetonationAttempts >= 3) {
+                        failDoubleAnchor(c, "The anchor interaction was rejected 3 times.");
+                    }
+                    return true;
+                }
                 doubleAnchorPhase = DoubleAnchorPhase.WAIT_EXPLOSION;
                 doubleAnchorWaitTicks = 0;
-                doubleAnchorDetonationAttempts++;
                 return true;
             }
             case WAIT_EXPLOSION -> {
@@ -548,9 +560,21 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                // Re-find a valid support face every time. An explosion may destroy the old
-                // support block; do not stay stuck using a stale support position.
-                BlockHitResult placeHit = findPlacementHit(c, doubleAnchorPos);
+                // Prefer the exact support face used for the original anchor. If the
+                // explosion removed it, discover another real face that still places into
+                // the original cell.
+                BlockHitResult placeHit = null;
+                if (doubleAnchorSupport != null && doubleAnchorSupportFace != null
+                        && c.level.getBlockState(doubleAnchorSupport).isSolid()) {
+                    placeHit = placementHit(doubleAnchorSupport, doubleAnchorSupportFace);
+                }
+                if (placeHit == null) {
+                    placeHit = findPlacementHit(c, doubleAnchorPos);
+                    if (placeHit != null) {
+                        doubleAnchorSupport = placeHit.getBlockPos();
+                        doubleAnchorSupportFace = placeHit.getDirection();
+                    }
+                }
                 if (placeHit == null
                         || c.player.getEyePosition().distanceToSqr(placeHit.getLocation()) > 4.5 * 4.5) {
                     if (++doubleAnchorWaitTicks >= 12) {
@@ -566,10 +590,19 @@ public final class CombatModuleEngine {
                 }
 
                 select(c, anchorSlot);
-                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
+                // Turn the actual view toward the exact support face before placing.
+                lookAt(c, placeHit.getLocation());
+                var placementResult = c.gameMode.useItemOn(
+                        c.player, InteractionHand.MAIN_HAND, placeHit);
+                doubleAnchorPlacementAttempts++;
+                if (!placementResult.consumesAction()) {
+                    if (doubleAnchorPlacementAttempts >= 3) {
+                        failDoubleAnchor(c, "The next anchor placement was rejected 3 times.");
+                    }
+                    return true;
+                }
                 doubleAnchorPhase = DoubleAnchorPhase.WAIT_NEXT_ANCHOR;
                 doubleAnchorWaitTicks = 0;
-                doubleAnchorPlacementAttempts++;
                 return true;
             }
             case WAIT_NEXT_ANCHOR -> {
@@ -646,8 +679,9 @@ public final class CombatModuleEngine {
         int glowstone = findHotbar(c, Items.GLOWSTONE);
         if (glowstone < 0) return false;
         select(c, glowstone);
-        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
-        return true;
+        BlockHitResult hit = anchorHit(pos);
+        lookAt(c, hit.getLocation());
+        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
 
     private static boolean detonateAnchorWithTotem(Minecraft c, BlockPos pos, int preferredSlot) {
@@ -780,6 +814,8 @@ public final class CombatModuleEngine {
         doubleAnchorDone = false;
         doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
         doubleAnchorPos = null;
+        doubleAnchorSupport = null;
+        doubleAnchorSupportFace = null;
         doubleAnchorWaitTicks = 0;
         doubleAnchorChargeAttempts = 0;
         doubleAnchorDetonationAttempts = 0;
