@@ -173,6 +173,11 @@ public final class CombatModuleEngine {
 
     /** Hold use: breaks the crystal in reach, otherwise places one on obsidian/bedrock. */
     private static boolean autoCrystal(Minecraft c, CpvpConfig.Settings s) {
+        // Auto Crystal is opt-in by the held item: never swap to a crystal or attack
+        // existing crystals while the player is eating/using another item.
+        if (!c.player.getMainHandItem().is(Items.END_CRYSTAL) || c.player.isUsingItem()) {
+            return false;
+        }
         double range = s.autoCrystalRange;
         if (c.hitResult instanceof EntityHitResult entityHit
                 && entityHit.getEntity() instanceof EndCrystal crystal) {
@@ -191,11 +196,9 @@ public final class CombatModuleEngine {
         // Do not stack onto a base that already carries a crystal.
         if (crystalAbove(c, base)) return false;
 
-        int crystalSlot = findHotbar(c, Items.END_CRYSTAL);
-        if (crystalSlot < 0) return false;
-        select(c, crystalSlot);
-        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
-        return true;
+        // The held-item gate above guarantees the crystal is already in the main hand.
+        // Never steal the slot from food, pearls, shields, or another item.
+        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
 
     /** Hold use (vanilla places crystals): only breaks crystals. */
@@ -252,16 +255,24 @@ public final class CombatModuleEngine {
 
     /** Charge a manually placed anchor once and detonate with the chosen slot. */
     private static boolean anchorMacro(Minecraft c, CpvpConfig.Settings s) {
-        // The player places the anchor manually. Cpvp only charges it once and detonates it.
-        BlockPos pos = lookedAtAnchor(c);
-        if (pos == null) return false;
+        // Only interact with the anchor already under the player's crosshair.
+        // Do not rotate the view or synthesize a center hit.
+        BlockHitResult hit = blockHit(c);
+        if (hit == null) return false;
+        BlockPos pos = hit.getBlockPos();
+        if (!c.level.getBlockState(pos).is(Blocks.RESPAWN_ANCHOR)) return false;
 
         int charges = c.level.getBlockState(pos).getValue(RespawnAnchorBlock.CHARGE);
         if (charges < 1) {
             if (!s.anchorMacroAutoCharge) return false;
-            return chargeAnchor(c, pos);
+            int glowstoneSlot = findHotbar(c, Items.GLOWSTONE);
+            if (glowstoneSlot < 0) return false;
+            select(c, glowstoneSlot);
+            return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
         }
-        return detonateAnchor(c, pos, s.anchorDetonatorSlot);
+
+        if (!selectDetonator(c, s.anchorDetonatorSlot)) return false;
+        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
 
     /**
