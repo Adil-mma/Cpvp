@@ -38,21 +38,25 @@ public final class CombatModuleEngine {
     private static final TickGate DOUBLE = new TickGate();
     private static final TickGate DOUBLE_STAGE = new TickGate();
 
-    private enum SafeAnchorPhase { WAIT_ANCHOR, CHARGE, COVER, DETONATE, WAIT_DETONATION }
+    private enum SafeAnchorPhase { WAIT_ANCHOR, CHARGE, WAIT_CHARGE, COVER, DETONATE, WAIT_DETONATION }
     private static SafeAnchorPhase safeAnchorPhase = SafeAnchorPhase.WAIT_ANCHOR;
     private static BlockPos safeAnchorPos;
     private static BlockPos safeAnchorCover;
     private static int safeAnchorCoverAttempts;
     private static int safeAnchorDetonationWait;
+    private static int safeAnchorChargeWait;
+    private static boolean safeAnchorChargeSent;
 
     private static int doubleAnchorPass;
     private static boolean doubleAnchorDone;
     private enum DoubleAnchorPhase {
-        WAIT_FIRST_ANCHOR, CHARGE, DETONATE, WAIT_EXPLOSION, PLACE_NEXT, WAIT_NEXT_ANCHOR, DONE
+        WAIT_FIRST_ANCHOR, CHARGE, WAIT_CHARGE, DETONATE, WAIT_EXPLOSION,
+        PLACE_NEXT, WAIT_NEXT_ANCHOR, DONE
     }
     private static DoubleAnchorPhase doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
     private static BlockPos doubleAnchorPos;
     private static int doubleAnchorWaitTicks;
+    private static int doubleAnchorChargeAttempts;
     private static int doubleAnchorDetonationAttempts;
     private static int doubleAnchorPlacementAttempts;
 
@@ -267,6 +271,8 @@ public final class CombatModuleEngine {
             safeAnchorPhase = SafeAnchorPhase.CHARGE;
             safeAnchorCoverAttempts = 0;
             safeAnchorDetonationWait = 0;
+            safeAnchorChargeWait = 0;
+            safeAnchorChargeSent = false;
         }
 
         if (safeAnchorPos == null
@@ -282,11 +288,34 @@ public final class CombatModuleEngine {
             case CHARGE -> {
                 int charges = c.level.getBlockState(safeAnchorPos)
                         .getValue(RespawnAnchorBlock.CHARGE);
-                if (charges < 1) {
-                    // Keep the existing view: the player should already be looking at the anchor.
-                    return chargeAnchor(c, safeAnchorPos);
+                if (charges >= 1) {
+                    safeAnchorPhase = SafeAnchorPhase.COVER;
+                    return false;
                 }
-                safeAnchorPhase = SafeAnchorPhase.COVER;
+                if (safeAnchorChargeSent) {
+                    safeAnchorPhase = SafeAnchorPhase.WAIT_CHARGE;
+                    return false;
+                }
+                if (chargeAnchor(c, safeAnchorPos)) {
+                    safeAnchorChargeSent = true;
+                    safeAnchorChargeWait = 0;
+                    safeAnchorPhase = SafeAnchorPhase.WAIT_CHARGE;
+                    return true;
+                }
+                return false;
+            }
+            case WAIT_CHARGE -> {
+                int charges = c.level.getBlockState(safeAnchorPos)
+                        .getValue(RespawnAnchorBlock.CHARGE);
+                if (charges >= 1) {
+                    safeAnchorPhase = SafeAnchorPhase.COVER;
+                    return false;
+                }
+                if (++safeAnchorChargeWait >= 12) {
+                    c.player.sendSystemMessage(Component.literal(
+                            "[Cpvp] Safe Anchor stopped: glowstone charge was not confirmed."));
+                    resetSafeAnchorProgress();
+                }
                 return false;
             }
             case COVER -> {
@@ -390,10 +419,43 @@ public final class CombatModuleEngine {
                 }
                 int charges = c.level.getBlockState(doubleAnchorPos)
                         .getValue(RespawnAnchorBlock.CHARGE);
-                if (charges < 1) return chargeAnchor(c, doubleAnchorPos);
-                doubleAnchorWaitTicks = 0;
-                doubleAnchorDetonationAttempts = 0;
-                doubleAnchorPhase = DoubleAnchorPhase.DETONATE;
+                if (charges >= 1) {
+                    doubleAnchorWaitTicks = 0;
+                    doubleAnchorChargeAttempts = 0;
+                    doubleAnchorDetonationAttempts = 0;
+                    doubleAnchorPhase = DoubleAnchorPhase.DETONATE;
+                    return false;
+                }
+                if (doubleAnchorChargeAttempts >= 1) {
+                    doubleAnchorPhase = DoubleAnchorPhase.WAIT_CHARGE;
+                    doubleAnchorWaitTicks = 0;
+                    return false;
+                }
+                if (chargeAnchor(c, doubleAnchorPos)) {
+                    doubleAnchorChargeAttempts++;
+                    doubleAnchorWaitTicks = 0;
+                    doubleAnchorPhase = DoubleAnchorPhase.WAIT_CHARGE;
+                    return true;
+                }
+                return false;
+            }
+            case WAIT_CHARGE -> {
+                if (doubleAnchorPos == null
+                        || !c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                    failDoubleAnchor(c, "Anchor disappeared before its glowstone charge was confirmed.");
+                    return false;
+                }
+                int charges = c.level.getBlockState(doubleAnchorPos)
+                        .getValue(RespawnAnchorBlock.CHARGE);
+                if (charges >= 1) {
+                    doubleAnchorWaitTicks = 0;
+                    doubleAnchorDetonationAttempts = 0;
+                    doubleAnchorPhase = DoubleAnchorPhase.DETONATE;
+                    return false;
+                }
+                if (++doubleAnchorWaitTicks >= 12) {
+                    failDoubleAnchor(c, "Glowstone charge was not confirmed; stopped to avoid charging repeatedly.");
+                }
                 return false;
             }
             case DETONATE -> {
@@ -487,6 +549,7 @@ public final class CombatModuleEngine {
                         && c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
                     doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                     doubleAnchorWaitTicks = 0;
+                    doubleAnchorChargeAttempts = 0;
                     doubleAnchorPlacementAttempts = 0;
                     return false;
                 }
@@ -677,6 +740,8 @@ public final class CombatModuleEngine {
         safeAnchorCover = null;
         safeAnchorCoverAttempts = 0;
         safeAnchorDetonationWait = 0;
+        safeAnchorChargeWait = 0;
+        safeAnchorChargeSent = false;
         SAFE.reset();
     }
 
@@ -687,6 +752,7 @@ public final class CombatModuleEngine {
         doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
         doubleAnchorPos = null;
         doubleAnchorWaitTicks = 0;
+        doubleAnchorChargeAttempts = 0;
         doubleAnchorDetonationAttempts = 0;
         doubleAnchorPlacementAttempts = 0;
         DOUBLE.reset();
