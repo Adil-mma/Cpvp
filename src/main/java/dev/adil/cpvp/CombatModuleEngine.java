@@ -6,6 +6,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
@@ -478,7 +479,6 @@ public final class CombatModuleEngine {
                 }
 
                 select(c, anchorSlot);
-                lookAt(c, Vec3.atCenterOf(doubleAnchorPos));
                 c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(doubleAnchorPos));
                 doubleAnchorPhase = DoubleAnchorPhase.WAIT_EXPLOSION;
                 doubleAnchorWaitTicks = 0;
@@ -537,7 +537,6 @@ public final class CombatModuleEngine {
                 }
 
                 select(c, anchorSlot);
-                lookAt(c, placeHit.getLocation());
                 c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
                 doubleAnchorPhase = DoubleAnchorPhase.WAIT_NEXT_ANCHOR;
                 doubleAnchorWaitTicks = 0;
