@@ -9,6 +9,7 @@ import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RespawnAnchorBlock;
 import net.minecraft.world.phys.AABB;
@@ -350,9 +351,8 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                BlockHitResult placeHit = findPlacementHit(c, safeAnchorCover);
-                if (placeHit == null
-                        || c.player.getEyePosition().distanceToSqr(placeHit.getLocation()) > 4.5 * 4.5) {
+                BlockHitResult placeHit = findVisiblePlacementHit(c, safeAnchorCover);
+                if (placeHit == null) {
                     // No reachable support face for this exact cell: do not turn.
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
                     return false;
@@ -396,8 +396,6 @@ public final class CombatModuleEngine {
                     safeAnchorPhase = SafeAnchorPhase.CHARGE;
                     return false;
                 }
-                // Return the visible view to the anchor before using the totem.
-                lookAt(c, Vec3.atCenterOf(safeAnchorPos));
                 if (!detonateAnchorWithTotem(c, safeAnchorPos, s.safeAnchorTotemSlot)) return false;
                 safeAnchorPhase = SafeAnchorPhase.WAIT_DETONATION;
                 safeAnchorDetonationWait = 0;
@@ -511,7 +509,14 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                BlockHitResult detonateHit = anchorHit(doubleAnchorPos);
+                BlockHitResult detonateHit = visibleAnchorHit(c, doubleAnchorPos);
+                if (detonateHit == null) {
+                    if (++doubleAnchorWaitTicks >= 12) {
+                        failDoubleAnchor(c, "No clear, reachable view of the charged anchor.");
+                    }
+                    return false;
+                }
+                select(c, anchorSlot);
                 lookAt(c, detonateHit.getLocation());
                 var detonateResult = c.gameMode.useItemOn(
                         c.player, InteractionHand.MAIN_HAND, detonateHit);
@@ -564,19 +569,17 @@ public final class CombatModuleEngine {
                 // explosion removed it, discover another real face that still places into
                 // the original cell.
                 BlockHitResult placeHit = null;
-                if (doubleAnchorSupport != null && doubleAnchorSupportFace != null
-                        && c.level.getBlockState(doubleAnchorSupport).isSolid()) {
-                    placeHit = placementHit(doubleAnchorSupport, doubleAnchorSupportFace);
+                if (doubleAnchorSupport != null && doubleAnchorSupportFace != null) {
+                    placeHit = visiblePlacementHit(c, doubleAnchorSupport, doubleAnchorSupportFace);
                 }
                 if (placeHit == null) {
-                    placeHit = findPlacementHit(c, doubleAnchorPos);
+                    placeHit = findVisiblePlacementHit(c, doubleAnchorPos);
                     if (placeHit != null) {
                         doubleAnchorSupport = placeHit.getBlockPos();
                         doubleAnchorSupportFace = placeHit.getDirection();
                     }
                 }
-                if (placeHit == null
-                        || c.player.getEyePosition().distanceToSqr(placeHit.getLocation()) > 4.5 * 4.5) {
+                if (placeHit == null) {
                     if (++doubleAnchorWaitTicks >= 12) {
                         failDoubleAnchor(c, "Cannot reach a surviving solid face for the same anchor cell.");
                     }
@@ -678,8 +681,9 @@ public final class CombatModuleEngine {
     private static boolean chargeAnchor(Minecraft c, BlockPos pos) {
         int glowstone = findHotbar(c, Items.GLOWSTONE);
         if (glowstone < 0) return false;
+        BlockHitResult hit = visibleAnchorHit(c, pos);
+        if (hit == null) return false;
         select(c, glowstone);
-        BlockHitResult hit = anchorHit(pos);
         lookAt(c, hit.getLocation());
         return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
@@ -687,15 +691,19 @@ public final class CombatModuleEngine {
     private static boolean detonateAnchorWithTotem(Minecraft c, BlockPos pos, int preferredSlot) {
         if (preferredSlot < 0 || preferredSlot > 8) return false;
         if (!c.player.getInventory().getItem(preferredSlot).is(Items.TOTEM_OF_UNDYING)) return false;
+        BlockHitResult hit = visibleAnchorHit(c, pos);
+        if (hit == null) return false;
         select(c, preferredSlot);
-        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
-        return true;
+        lookAt(c, hit.getLocation());
+        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
 
     private static boolean detonateAnchor(Minecraft c, BlockPos pos, int preferredSlot) {
         if (!selectDetonator(c, preferredSlot)) return false;
-        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorHit(pos));
-        return true;
+        BlockHitResult hit = visibleAnchorHit(c, pos);
+        if (hit == null) return false;
+        lookAt(c, hit.getLocation());
+        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
 
     private static BlockPos coverPosition(BlockPos player, BlockPos anchor) {
@@ -731,8 +739,48 @@ public final class CombatModuleEngine {
         return c.level.getBlockState(pos).is(Blocks.RESPAWN_ANCHOR) ? pos : null;
     }
 
-    private static BlockHitResult anchorHit(BlockPos pos) {
-        return new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false);
+    /** Real vanilla-style ray hit on the requested anchor, bounded by normal reach. */
+    private static BlockHitResult visibleAnchorHit(Minecraft c, BlockPos pos) {
+        Vec3 eye = c.player.getEyePosition();
+        Vec3 target = Vec3.atCenterOf(pos);
+        if (eye.distanceToSqr(target) > 4.5 * 4.5) return null;
+        BlockHitResult hit = c.level.clip(new ClipContext(
+                eye, target, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
+        return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos)
+                ? hit : null;
+    }
+
+    /** Verify that the requested support face is the first real block hit by the ray. */
+    private static BlockHitResult visiblePlacementHit(
+            Minecraft c, BlockPos support, Direction face) {
+        if (support == null || face == null || !c.level.getBlockState(support).isSolid()) return null;
+        BlockHitResult candidate = placementHit(support, face);
+        Vec3 eye = c.player.getEyePosition();
+        if (eye.distanceToSqr(candidate.getLocation()) > 4.5 * 4.5) return null;
+        Vec3 normal = new Vec3(face.getStepX(), face.getStepY(), face.getStepZ());
+        Vec3 end = candidate.getLocation().add(
+                normal.x * 0.02, normal.y * 0.02, normal.z * 0.02);
+        BlockHitResult actual = c.level.clip(new ClipContext(
+                eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
+        return actual.getType() == HitResult.Type.BLOCK
+                && actual.getBlockPos().equals(support)
+                && actual.getDirection() == face ? actual : null;
+    }
+
+    /** Find any visible support face that places into the exact requested cell. */
+    private static BlockHitResult findVisiblePlacementHit(Minecraft c, BlockPos target) {
+        if (target == null) return null;
+        Direction[] order = {
+                Direction.DOWN, Direction.NORTH, Direction.SOUTH,
+                Direction.WEST, Direction.EAST, Direction.UP
+        };
+        for (Direction offset : order) {
+            BlockPos support = target.relative(offset);
+            Direction face = offset.getOpposite();
+            BlockHitResult hit = visiblePlacementHit(c, support, face);
+            if (hit != null) return hit;
+        }
+        return null;
     }
 
     /** Rotate the real player view toward a world-space target before sending an interaction. */
