@@ -351,6 +351,11 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
+                if (visibleAnchorHitAvoiding(c, safeAnchorPos, safeAnchorCover) == null) {
+                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    return false;
+                }
+
                 BlockHitResult placeHit = findVisiblePlacementHit(c, safeAnchorCover);
                 if (placeHit == null) {
                     // No reachable support face for this exact cell: do not turn.
@@ -739,15 +744,54 @@ public final class CombatModuleEngine {
         return c.level.getBlockState(pos).is(Blocks.RESPAWN_ANCHOR) ? pos : null;
     }
 
-    /** Real vanilla-style ray hit on the requested anchor, bounded by normal reach. */
+    /** Real vanilla-style ray hit on any exposed anchor face, bounded by normal reach. */
     private static BlockHitResult visibleAnchorHit(Minecraft c, BlockPos pos) {
+        return visibleAnchorHitAvoiding(c, pos, null);
+    }
+
+    /**
+     * Find an exposed anchor face without relying on a ray that crosses the future cover
+     * cell. This prevents Safe Anchor from placing glowstone that makes the anchor impossible
+     * to click normally afterward.
+     */
+    private static BlockHitResult visibleAnchorHitAvoiding(
+            Minecraft c, BlockPos pos, BlockPos avoidedCell) {
         Vec3 eye = c.player.getEyePosition();
-        Vec3 target = Vec3.atCenterOf(pos);
-        if (eye.distanceToSqr(target) > 4.5 * 4.5) return null;
-        BlockHitResult hit = c.level.clip(new ClipContext(
-                eye, target, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
-        return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos)
-                ? hit : null;
+        double x = pos.getX(), y = pos.getY(), z = pos.getZ();
+        Vec3[] aimPoints = {
+                new Vec3(x + 0.5, y + 0.5, z + 0.5),
+                new Vec3(x + 0.5, y + 0.95, z + 0.5),
+                new Vec3(x + 0.5, y + 0.05, z + 0.5),
+                new Vec3(x + 0.05, y + 0.5, z + 0.5),
+                new Vec3(x + 0.95, y + 0.5, z + 0.5),
+                new Vec3(x + 0.5, y + 0.5, z + 0.05),
+                new Vec3(x + 0.5, y + 0.5, z + 0.95)
+        };
+
+        for (Vec3 target : aimPoints) {
+            if (eye.distanceToSqr(target) > 4.5 * 4.5) continue;
+            if (avoidedCell != null && rayCrossesCell(eye, target, avoidedCell)) continue;
+            BlockHitResult hit = c.level.clip(new ClipContext(
+                    eye, target, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
+            if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos)) {
+                return hit;
+            }
+        }
+        return null;
+    }
+
+    private static boolean rayCrossesCell(Vec3 from, Vec3 to, BlockPos cell) {
+        double distance = from.distanceTo(to);
+        int steps = Math.max(2, (int) Math.ceil(distance * 8.0));
+        for (int i = 1; i < steps; i++) {
+            double t = i / (double) steps;
+            BlockPos point = BlockPos.containing(
+                    from.x + (to.x - from.x) * t,
+                    from.y + (to.y - from.y) * t,
+                    from.z + (to.z - from.z) * t);
+            if (point.equals(cell)) return true;
+        }
+        return false;
     }
 
     /** Verify that the requested support face is the first real block hit by the ray. */
