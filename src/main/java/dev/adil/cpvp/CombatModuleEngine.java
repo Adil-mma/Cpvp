@@ -6,8 +6,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
-import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
@@ -377,8 +375,6 @@ public final class CombatModuleEngine {
                     failDoubleAnchor(c, "No solid support face found under/around the first anchor.");
                     return false;
                 }
-                doubleAnchorSupport = supportHit.getBlockPos();
-                doubleAnchorPlaceFace = supportHit.getDirection();
                 doubleAnchorWaitTicks = 0;
                 doubleAnchorDetonationAttempts = 0;
                 doubleAnchorPlacementAttempts = 0;
