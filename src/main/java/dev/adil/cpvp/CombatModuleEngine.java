@@ -39,7 +39,7 @@ public final class CombatModuleEngine {
     private static final TickGate DOUBLE = new TickGate();
     private static final TickGate DOUBLE_STAGE = new TickGate();
 
-    private enum SafeAnchorPhase { WAIT_ANCHOR, CHARGE, WAIT_CHARGE, COVER, DETONATE, WAIT_DETONATION }
+    private enum SafeAnchorPhase { WAIT_ANCHOR, CHARGE, WAIT_CHARGE, COVER, WAIT_COVER, DETONATE, WAIT_DETONATION }
     private static SafeAnchorPhase safeAnchorPhase = SafeAnchorPhase.WAIT_ANCHOR;
     private static BlockPos safeAnchorPos;
     private static BlockPos safeAnchorCover;
@@ -47,6 +47,9 @@ public final class CombatModuleEngine {
     private static int safeAnchorDetonationWait;
     private static int safeAnchorChargeWait;
     private static boolean safeAnchorChargeSent;
+    private static int safeAnchorCoverWait;
+    private static float safeAnchorPreviousYaw;
+    private static float safeAnchorPreviousPitch;
 
     private static int doubleAnchorPass;
     private static boolean doubleAnchorDone;
@@ -274,6 +277,7 @@ public final class CombatModuleEngine {
             safeAnchorDetonationWait = 0;
             safeAnchorChargeWait = 0;
             safeAnchorChargeSent = false;
+            safeAnchorCoverWait = 0;
         }
 
         if (safeAnchorPos == null
@@ -352,11 +356,36 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
+                safeAnchorPreviousYaw = c.player.getYRot();
+                safeAnchorPreviousPitch = c.player.getXRot();
                 select(c, glowstoneSlot);
                 lookAt(c, placeHit.getLocation());
-                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
+                var result = c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, placeHit);
+                if (!result.consumesAction()) {
+                    // The game refused the placement locally: restore the view immediately.
+                    c.player.setYRot(safeAnchorPreviousYaw);
+                    c.player.setXRot(safeAnchorPreviousPitch);
+                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    return false;
+                }
                 safeAnchorCoverAttempts++;
+                safeAnchorCoverWait = 0;
+                safeAnchorPhase = SafeAnchorPhase.WAIT_COVER;
                 return true;
+            }
+            case WAIT_COVER -> {
+                if (safeAnchorCover != null
+                        && c.level.getBlockState(safeAnchorCover).is(Blocks.GLOWSTONE)) {
+                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    return false;
+                }
+                if (++safeAnchorCoverWait >= 6) {
+                    // Server correction/no placement: undo the temporary camera turn.
+                    c.player.setYRot(safeAnchorPreviousYaw);
+                    c.player.setXRot(safeAnchorPreviousPitch);
+                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                }
+                return false;
             }
             case DETONATE -> {
                 int charges = c.level.getBlockState(safeAnchorPos)
@@ -741,6 +770,7 @@ public final class CombatModuleEngine {
         safeAnchorDetonationWait = 0;
         safeAnchorChargeWait = 0;
         safeAnchorChargeSent = false;
+        safeAnchorCoverWait = 0;
         SAFE.reset();
     }
 
