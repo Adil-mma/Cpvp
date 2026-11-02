@@ -133,12 +133,18 @@ public final class CombatModuleEngine {
                 SAFE.start(s.safeAnchorMinDelayTicks, s.safeAnchorMaxDelayTicks);
             }
         } else if (s.doubleAnchorEnabled) {
-            if (DOUBLE.ready() && DOUBLE_STAGE.ready() && doubleAnchor(c, s)) {
+            // Advance both timers every tick; short-circuit && would pause the stage timer
+            // until the action timer finished, unintentionally adding the delays together.
+            boolean actionReady = DOUBLE.ready();
+            boolean stageReady = DOUBLE_STAGE.ready();
+            if (actionReady && stageReady && doubleAnchor(c, s)) {
                 DOUBLE.start(s.doubleAnchorMinDelayTicks, s.doubleAnchorMaxDelayTicks);
                 DOUBLE_STAGE.start(s.doubleAnchorMinStageDelayTicks, s.doubleAnchorMaxStageDelayTicks);
             }
         } else if (s.anchorMacroEnabled && c.options.keyUse.isDown()) {
-            if (MACRO.ready() && MACRO_STAGE.ready() && anchorMacro(c, s)) {
+            boolean actionReady = MACRO.ready();
+            boolean stageReady = MACRO_STAGE.ready();
+            if (actionReady && stageReady && anchorMacro(c, s)) {
                 MACRO.start(s.anchorMacroMinDelayTicks, s.anchorMacroMaxDelayTicks);
                 MACRO_STAGE.start(s.anchorMacroMinStageDelayTicks, s.anchorMacroMaxStageDelayTicks);
             }
@@ -175,6 +181,7 @@ public final class CombatModuleEngine {
     /** True while the player selected a protected item or is actively using one. */
     private static boolean isProtectedCrystalItem(Minecraft c) {
         return isFastCrystalPriorityItem(c.player.getMainHandItem())
+                || isFastCrystalPriorityItem(c.player.getOffhandItem())
                 || (c.player.isUsingItem() && isFastCrystalPriorityItem(c.player.getUseItem()));
     }
 
@@ -465,6 +472,11 @@ public final class CombatModuleEngine {
                 BlockPos first = lookedAtAnchor(c);
                 if (first == null) return false;
                 doubleAnchorPos = first;
+                doubleAnchorPass = 0;
+                doubleAnchorChargeAttempts = 0;
+                doubleAnchorDetonationAttempts = 0;
+                doubleAnchorPlacementAttempts = 0;
+                doubleAnchorWaitTicks = 0;
                 BlockHitResult supportHit = findPlacementHit(c, first);
                 if (supportHit == null) {
                     failDoubleAnchor(c, "No solid support face found under/around the first anchor.");
@@ -483,6 +495,11 @@ public final class CombatModuleEngine {
                         || !c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
                     doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
                     doubleAnchorPos = null;
+                    doubleAnchorPass = 0;
+                    doubleAnchorChargeAttempts = 0;
+                    doubleAnchorDetonationAttempts = 0;
+                    doubleAnchorPlacementAttempts = 0;
+                    doubleAnchorWaitTicks = 0;
                     return false;
                 }
                 int charges = c.level.getBlockState(doubleAnchorPos)
