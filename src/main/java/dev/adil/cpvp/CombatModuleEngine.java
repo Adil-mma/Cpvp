@@ -532,12 +532,6 @@ public final class CombatModuleEngine {
                     doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                     return false;
                 }
-                int preferredDetonator = c.player.getInventory().getSelectedSlot();
-                if (!selectDetonator(c, preferredDetonator)) {
-                    failDoubleAnchor(c, "No usable hotbar item is available to trigger the charged anchor.");
-                    return false;
-                }
-
                 BlockHitResult detonateHit = visibleAnchorHit(c, doubleAnchorPos);
                 if (detonateHit == null) {
                     if (++doubleAnchorWaitTicks >= 12) {
@@ -545,7 +539,12 @@ public final class CombatModuleEngine {
                     }
                     return false;
                 }
-                select(c, anchorSlot);
+
+                int preferredDetonator = c.player.getInventory().getSelectedSlot();
+                if (!selectDetonator(c, preferredDetonator)) {
+                    failDoubleAnchor(c, "No usable hotbar item is available to trigger the charged anchor.");
+                    return false;
+                }
                 lookAt(c, detonateHit.getLocation());
                 var detonateResult = c.gameMode.useItemOn(
                         c.player, InteractionHand.MAIN_HAND, detonateHit);
