@@ -331,6 +331,11 @@ public final class CombatModuleEngine {
                     safeAnchorPhase = SafeAnchorPhase.WAIT_CHARGE;
                     return true;
                 }
+                if (++safeAnchorChargeWait >= 20) {
+                    c.player.sendSystemMessage(Component.literal(
+                            "[Cpvp] Safe Anchor stopped: glowstone is missing or the anchor is not reachable."));
+                    resetSafeAnchorProgress();
+                }
                 return false;
             }
             case WAIT_CHARGE -> {
@@ -521,6 +526,10 @@ public final class CombatModuleEngine {
                     doubleAnchorWaitTicks = 0;
                     doubleAnchorPhase = DoubleAnchorPhase.WAIT_CHARGE;
                     return true;
+                }
+                if (++doubleAnchorWaitTicks >= 20) {
+                    failDoubleAnchor(c,
+                            "Could not charge: put Glowstone in the hotbar and keep the anchor reachable.");
                 }
                 return false;
             }
