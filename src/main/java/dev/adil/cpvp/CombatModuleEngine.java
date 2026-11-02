@@ -171,46 +171,49 @@ public final class CombatModuleEngine {
                 || stack.is(Items.SHIELD);
     }
 
-    /** Hold use: breaks the crystal in reach, otherwise places one on obsidian/bedrock. */
+    /** True only when a protected item is selected or is the item currently being used. */
+    private static boolean isUsingCrystalPriorityItem(Minecraft c) {
+        return isFastCrystalPriorityItem(c.player.getMainHandItem())
+                || (c.player.isUsingItem()
+                    && isFastCrystalPriorityItem(c.player.getUseItem()));
+    }
+
+    /** Hold use: breaks a crystal in reach, otherwise places one on the aimed obsidian/bedrock. */
     private static boolean autoCrystal(Minecraft c, CpvpConfig.Settings s) {
-        // Auto Crystal is opt-in by the held item: never swap to a crystal or attack
-        // existing crystals while the player is eating/using another item.
-        if (!c.player.getMainHandItem().is(Items.END_CRYSTAL) || c.player.isUsingItem()) {
-            return false;
-        }
+        // Never override an active golden-apple, pearl, or shield action.
+        if (isUsingCrystalPriorityItem(c)) return false;
+
         double range = s.autoCrystalRange;
         if (c.hitResult instanceof EntityHitResult entityHit
                 && entityHit.getEntity() instanceof EndCrystal crystal) {
             return attackCrystal(c, crystal, range, s.autoCrystalStopAboveTarget);
         }
 
-        // A freshly placed crystal is not always the crosshair entity; break nearby ones first.
+        // Preserve the existing Auto Crystal cycle: break a nearby crystal first.
         if (attackNearestCrystal(c, range, s.autoCrystalStopAboveTarget)) return true;
 
         BlockHitResult hit = blockHit(c);
         if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return false;
         BlockPos base = hit.getBlockPos();
-        // Crystals sit on top of the base block, so compare against the base's top surface.
         if (s.autoCrystalStopAboveTarget && isAbove(c, base.getY() + 1.0)) return false;
         if (c.player.distanceToSqr(Vec3.atCenterOf(base)) > range * range) return false;
-        // Do not stack onto a base that already carries a crystal.
         if (crystalAbove(c, base)) return false;
 
-        // The held-item gate above guarantees the crystal is already in the main hand.
-        // Never steal the slot from food, pearls, shields, or another item.
+        // Auto Crystal may select the crystal slot, but never while a protected item is used.
+        int crystalSlot = findHotbar(c, Items.END_CRYSTAL);
+        if (crystalSlot < 0) return false;
+        select(c, crystalSlot);
         return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
 
-    /** Hold use (vanilla places crystals): only breaks crystals. */
+    /** Hold use: attack only the End Crystal directly under the crosshair. */
     private static boolean hitCrystal(Minecraft c, CpvpConfig.Settings s) {
-        double range = s.hitCrystalRange;
-        if (c.hitResult instanceof EntityHitResult entityHit
-                && entityHit.getEntity() instanceof EndCrystal crystal) {
-            return attackCrystal(c, crystal, range, s.hitCrystalStopAboveTarget);
+        if (isUsingCrystalPriorityItem(c)) return false;
+        if (!(c.hitResult instanceof EntityHitResult entityHit)
+                || !(entityHit.getEntity() instanceof EndCrystal crystal)) {
+            return false;
         }
-        BlockHitResult block = blockHit(c);
-        if (block == null || !isCrystalBase(c, block.getBlockPos())) return false;
-        return attackNearestCrystal(c, range, s.hitCrystalStopAboveTarget);
+        return attackCrystal(c, crystal, s.hitCrystalRange, s.hitCrystalStopAboveTarget);
     }
 
     private static boolean attackCrystal(Minecraft c, EndCrystal crystal, double range, boolean stopAbove) {
@@ -412,7 +415,17 @@ public final class CombatModuleEngine {
                     safeAnchorPhase = SafeAnchorPhase.CHARGE;
                     return false;
                 }
-                if (!detonateAnchorWithTotem(c, safeAnchorPos, s.safeAnchorTotemSlot)) return false;
+                BlockPos avoidedCell = safeAnchorCover != null
+                        && c.level.getBlockState(safeAnchorCover).is(Blocks.GLOWSTONE)
+                        ? safeAnchorCover : null;
+                if (!detonateAnchorWithTotem(c, safeAnchorPos, s.safeAnchorTotemSlot, avoidedCell)) {
+                    if (++safeAnchorDetonationWait >= 20) {
+                        c.player.sendSystemMessage(Component.literal(
+                                "[Cpvp] Safe Anchor stopped: no usable totem slot or visible anchor face."));
+                        resetSafeAnchorProgress();
+                    }
+                    return false;
+                }
                 safeAnchorPhase = SafeAnchorPhase.WAIT_DETONATION;
                 safeAnchorDetonationWait = 0;
                 return true;
@@ -519,9 +532,9 @@ public final class CombatModuleEngine {
                     doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                     return false;
                 }
-                int anchorSlot = findDoubleAnchorSlot(c, s);
-                if (anchorSlot < 0) {
-                    failDoubleAnchor(c, "Respawn Anchor stack not found in the hotbar.");
+                int preferredDetonator = c.player.getInventory().getSelectedSlot();
+                if (!selectDetonator(c, preferredDetonator)) {
+                    failDoubleAnchor(c, "No usable hotbar item is available to trigger the charged anchor.");
                     return false;
                 }
 
@@ -704,12 +717,20 @@ public final class CombatModuleEngine {
         return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
 
-    private static boolean detonateAnchorWithTotem(Minecraft c, BlockPos pos, int preferredSlot) {
-        if (preferredSlot < 0 || preferredSlot > 8) return false;
-        if (!c.player.getInventory().getItem(preferredSlot).is(Items.TOTEM_OF_UNDYING)) return false;
-        BlockHitResult hit = visibleAnchorHit(c, pos);
+    private static boolean detonateAnchorWithTotem(
+            Minecraft c, BlockPos pos, int preferredSlot, BlockPos avoidedCell) {
+        int totemSlot = -1;
+        if (preferredSlot >= 0 && preferredSlot < 9
+                && c.player.getInventory().getItem(preferredSlot).is(Items.TOTEM_OF_UNDYING)) {
+            totemSlot = preferredSlot;
+        } else {
+            totemSlot = findHotbar(c, Items.TOTEM_OF_UNDYING);
+        }
+        if (totemSlot < 0) return false;
+
+        BlockHitResult hit = visibleAnchorHitAvoiding(c, pos, avoidedCell);
         if (hit == null) return false;
-        select(c, preferredSlot);
+        select(c, totemSlot);
         lookAt(c, hit.getLocation());
         return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
