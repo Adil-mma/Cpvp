@@ -46,7 +46,6 @@ public final class CombatModuleEngine {
     private static BlockPos safeAnchorCover;
     private static int safeAnchorCoverAttempts;
     private static int safeAnchorDetonationWait;
-    private static int safeAnchorDetonationAttempts;
     private static int safeAnchorChargeWait;
     private static boolean safeAnchorChargeSent;
     private static int safeAnchorCoverWait;
@@ -133,17 +132,12 @@ public final class CombatModuleEngine {
                 SAFE.start(s.safeAnchorMinDelayTicks, s.safeAnchorMaxDelayTicks);
             }
         } else if (s.doubleAnchorEnabled) {
-            // Both gates must count down on every tick; short-circuiting them adds delays.
-            boolean actionReady = DOUBLE.ready();
-            boolean stageReady = DOUBLE_STAGE.ready();
-            if (actionReady && stageReady && doubleAnchor(c, s)) {
+            if (DOUBLE.ready() && DOUBLE_STAGE.ready() && doubleAnchor(c, s)) {
                 DOUBLE.start(s.doubleAnchorMinDelayTicks, s.doubleAnchorMaxDelayTicks);
                 DOUBLE_STAGE.start(s.doubleAnchorMinStageDelayTicks, s.doubleAnchorMaxStageDelayTicks);
             }
         } else if (s.anchorMacroEnabled && c.options.keyUse.isDown()) {
-            boolean actionReady = MACRO.ready();
-            boolean stageReady = MACRO_STAGE.ready();
-            if (actionReady && stageReady && anchorMacro(c, s)) {
+            if (MACRO.ready() && MACRO_STAGE.ready() && anchorMacro(c, s)) {
                 MACRO.start(s.anchorMacroMinDelayTicks, s.anchorMacroMaxDelayTicks);
                 MACRO_STAGE.start(s.anchorMacroMinStageDelayTicks, s.anchorMacroMaxStageDelayTicks);
             }
@@ -177,47 +171,46 @@ public final class CombatModuleEngine {
                 || stack.is(Items.SHIELD);
     }
 
-    /** True while a protected item is selected or actively being used. */
-    private static boolean isProtectedCrystalItem(Minecraft c) {
-        return isFastCrystalPriorityItem(c.player.getMainHandItem())
-                || isFastCrystalPriorityItem(c.player.getOffhandItem())
-                || (c.player.isUsingItem() && isFastCrystalPriorityItem(c.player.getUseItem()));
-    }
-
-    /** Hold use: break a nearby crystal first, otherwise place one on the aimed base. */
+    /** Hold use: breaks the crystal in reach, otherwise places one on obsidian/bedrock. */
     private static boolean autoCrystal(Minecraft c, CpvpConfig.Settings s) {
-        // Preserve the old Auto Crystal cycle, but never steal Gap/Shield/Pearl use.
-        if (isProtectedCrystalItem(c)) return false;
-
+        // Auto Crystal is opt-in by the held item: never swap to a crystal or attack
+        // existing crystals while the player is eating/using another item.
+        if (!c.player.getMainHandItem().is(Items.END_CRYSTAL) || c.player.isUsingItem()) {
+            return false;
+        }
         double range = s.autoCrystalRange;
         if (c.hitResult instanceof EntityHitResult entityHit
                 && entityHit.getEntity() instanceof EndCrystal crystal) {
             return attackCrystal(c, crystal, range, s.autoCrystalStopAboveTarget);
         }
 
+        // A freshly placed crystal is not always the crosshair entity; break nearby ones first.
         if (attackNearestCrystal(c, range, s.autoCrystalStopAboveTarget)) return true;
 
         BlockHitResult hit = blockHit(c);
         if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return false;
         BlockPos base = hit.getBlockPos();
+        // Crystals sit on top of the base block, so compare against the base's top surface.
         if (s.autoCrystalStopAboveTarget && isAbove(c, base.getY() + 1.0)) return false;
         if (c.player.distanceToSqr(Vec3.atCenterOf(base)) > range * range) return false;
+        // Do not stack onto a base that already carries a crystal.
         if (crystalAbove(c, base)) return false;
 
-        int crystalSlot = findHotbar(c, Items.END_CRYSTAL);
-        if (crystalSlot < 0) return false;
-        select(c, crystalSlot);
+        // The held-item gate above guarantees the crystal is already in the main hand.
+        // Never steal the slot from food, pearls, shields, or another item.
         return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
 
-    /** Hit Crystal attacks only the End Crystal directly under the crosshair. */
+    /** Hold use (vanilla places crystals): only breaks crystals. */
     private static boolean hitCrystal(Minecraft c, CpvpConfig.Settings s) {
-        if (isProtectedCrystalItem(c)) return false;
-        if (!(c.hitResult instanceof EntityHitResult entityHit)
-                || !(entityHit.getEntity() instanceof EndCrystal crystal)) {
-            return false;
+        double range = s.hitCrystalRange;
+        if (c.hitResult instanceof EntityHitResult entityHit
+                && entityHit.getEntity() instanceof EndCrystal crystal) {
+            return attackCrystal(c, crystal, range, s.hitCrystalStopAboveTarget);
         }
-        return attackCrystal(c, crystal, s.hitCrystalRange, s.hitCrystalStopAboveTarget);
+        BlockHitResult block = blockHit(c);
+        if (block == null || !isCrystalBase(c, block.getBlockPos())) return false;
+        return attackNearestCrystal(c, range, s.hitCrystalStopAboveTarget);
     }
 
     private static boolean attackCrystal(Minecraft c, EndCrystal crystal, double range, boolean stopAbove) {
@@ -296,7 +289,6 @@ public final class CombatModuleEngine {
             safeAnchorPhase = SafeAnchorPhase.CHARGE;
             safeAnchorCoverAttempts = 0;
             safeAnchorDetonationWait = 0;
-            safeAnchorDetonationAttempts = 0;
             safeAnchorChargeWait = 0;
             safeAnchorChargeSent = false;
             safeAnchorCoverWait = 0;
@@ -329,18 +321,12 @@ public final class CombatModuleEngine {
                     safeAnchorPhase = SafeAnchorPhase.WAIT_CHARGE;
                     return true;
                 }
-                if (++safeAnchorChargeWait >= 20) {
-                    c.player.sendSystemMessage(Component.literal(
-                            "[Cpvp] Safe Anchor stopped: Glowstone is missing or the anchor is not reachable."));
-                    resetSafeAnchorProgress();
-                }
                 return false;
             }
             case WAIT_CHARGE -> {
                 int charges = c.level.getBlockState(safeAnchorPos)
                         .getValue(RespawnAnchorBlock.CHARGE);
                 if (charges >= 1) {
-                    safeAnchorChargeWait = 0;
                     safeAnchorPhase = SafeAnchorPhase.COVER;
                     return false;
                 }
@@ -408,8 +394,6 @@ public final class CombatModuleEngine {
             case WAIT_COVER -> {
                 if (safeAnchorCover != null
                         && c.level.getBlockState(safeAnchorCover).is(Blocks.GLOWSTONE)) {
-                    c.player.setYRot(safeAnchorPreviousYaw);
-                    c.player.setXRot(safeAnchorPreviousPitch);
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
                     return false;
                 }
@@ -428,18 +412,7 @@ public final class CombatModuleEngine {
                     safeAnchorPhase = SafeAnchorPhase.CHARGE;
                     return false;
                 }
-                BlockPos avoidedCell = safeAnchorCover != null
-                        && c.level.getBlockState(safeAnchorCover).is(Blocks.GLOWSTONE)
-                        ? safeAnchorCover : null;
-                if (!detonateAnchorWithTotem(c, safeAnchorPos, s.safeAnchorTotemSlot, avoidedCell)) {
-                    if (++safeAnchorDetonationWait >= 20) {
-                        c.player.sendSystemMessage(Component.literal(
-                                "[Cpvp] Safe Anchor stopped: no usable Totem or reachable anchor face."));
-                        resetSafeAnchorProgress();
-                    }
-                    return false;
-                }
-                safeAnchorDetonationAttempts++;
+                if (!detonateAnchorWithTotem(c, safeAnchorPos, s.safeAnchorTotemSlot)) return false;
                 safeAnchorPhase = SafeAnchorPhase.WAIT_DETONATION;
                 safeAnchorDetonationWait = 0;
                 return true;
@@ -450,12 +423,6 @@ public final class CombatModuleEngine {
                     return false;
                 }
                 if (++safeAnchorDetonationWait >= 8) {
-                    if (safeAnchorDetonationAttempts >= 3) {
-                        c.player.sendSystemMessage(Component.literal(
-                                "[Cpvp] Safe Anchor stopped: detonation was not confirmed after 3 attempts."));
-                        resetSafeAnchorProgress();
-                        return false;
-                    }
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
                     safeAnchorDetonationWait = 0;
                 }
@@ -478,11 +445,6 @@ public final class CombatModuleEngine {
                 BlockPos first = lookedAtAnchor(c);
                 if (first == null) return false;
                 doubleAnchorPos = first;
-                doubleAnchorPass = 0;
-                doubleAnchorChargeAttempts = 0;
-                doubleAnchorDetonationAttempts = 0;
-                doubleAnchorPlacementAttempts = 0;
-                doubleAnchorWaitTicks = 0;
                 BlockHitResult supportHit = findPlacementHit(c, first);
                 if (supportHit == null) {
                     failDoubleAnchor(c, "No solid support face found under/around the first anchor.");
@@ -501,11 +463,6 @@ public final class CombatModuleEngine {
                         || !c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
                     doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
                     doubleAnchorPos = null;
-                    doubleAnchorPass = 0;
-                    doubleAnchorChargeAttempts = 0;
-                    doubleAnchorDetonationAttempts = 0;
-                    doubleAnchorPlacementAttempts = 0;
-                    doubleAnchorWaitTicks = 0;
                     return false;
                 }
                 int charges = c.level.getBlockState(doubleAnchorPos)
@@ -527,10 +484,6 @@ public final class CombatModuleEngine {
                     doubleAnchorWaitTicks = 0;
                     doubleAnchorPhase = DoubleAnchorPhase.WAIT_CHARGE;
                     return true;
-                }
-                if (++doubleAnchorWaitTicks >= 20) {
-                    failDoubleAnchor(c,
-                            "Cannot charge: keep the anchor reachable and put Glowstone in the hotbar.");
                 }
                 return false;
             }
@@ -751,20 +704,12 @@ public final class CombatModuleEngine {
         return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
 
-    private static boolean detonateAnchorWithTotem(
-            Minecraft c, BlockPos pos, int preferredSlot, BlockPos avoidedCell) {
-        int totemSlot = -1;
-        if (preferredSlot >= 0 && preferredSlot < 9
-                && c.player.getInventory().getItem(preferredSlot).is(Items.TOTEM_OF_UNDYING)) {
-            totemSlot = preferredSlot;
-        } else {
-            totemSlot = findHotbar(c, Items.TOTEM_OF_UNDYING);
-        }
-        if (totemSlot < 0) return false;
-
-        BlockHitResult hit = visibleAnchorHitAvoiding(c, pos, avoidedCell);
+    private static boolean detonateAnchorWithTotem(Minecraft c, BlockPos pos, int preferredSlot) {
+        if (preferredSlot < 0 || preferredSlot > 8) return false;
+        if (!c.player.getInventory().getItem(preferredSlot).is(Items.TOTEM_OF_UNDYING)) return false;
+        BlockHitResult hit = visibleAnchorHit(c, pos);
         if (hit == null) return false;
-        select(c, totemSlot);
+        select(c, preferredSlot);
         lookAt(c, hit.getLocation());
         return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
@@ -960,7 +905,6 @@ public final class CombatModuleEngine {
         safeAnchorCover = null;
         safeAnchorCoverAttempts = 0;
         safeAnchorDetonationWait = 0;
-        safeAnchorDetonationAttempts = 0;
         safeAnchorChargeWait = 0;
         safeAnchorChargeSent = false;
         safeAnchorCoverWait = 0;
