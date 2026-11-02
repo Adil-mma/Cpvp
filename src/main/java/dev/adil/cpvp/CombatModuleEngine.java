@@ -181,7 +181,6 @@ public final class CombatModuleEngine {
     /** True while the player selected a protected item or is actively using one. */
     private static boolean isProtectedCrystalItem(Minecraft c) {
         return isFastCrystalPriorityItem(c.player.getMainHandItem())
-                || isFastCrystalPriorityItem(c.player.getOffhandItem())
                 || (c.player.isUsingItem() && isFastCrystalPriorityItem(c.player.getUseItem()));
     }
 
