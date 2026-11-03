@@ -546,9 +546,15 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                int anchorSlot = findDoubleAnchorSlot(c, s);
-                if (anchorSlot < 0) {
-                    failDoubleAnchor(c, "Respawn Anchor stack not found in the hotbar.");
+                // First detonation uses the Anchor slot. After the replacement anchor
+                // has been placed and charged, the next detonation switches to Totem.
+                int detonatorSlot = doubleAnchorPass == 0
+                        ? findDoubleAnchorSlot(c, s)
+                        : findHotbar(c, Items.TOTEM_OF_UNDYING);
+                if (detonatorSlot < 0) {
+                    failDoubleAnchor(c, doubleAnchorPass == 0
+                            ? "Respawn Anchor stack not found in the hotbar."
+                            : "Totem of Undying not found in the hotbar.");
                     return false;
                 }
 
@@ -568,7 +574,7 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                select(c, anchorSlot);
+                select(c, detonatorSlot);
                 var detonateResult = c.gameMode.useItemOn(
                         c.player, InteractionHand.MAIN_HAND, currentHit);
                 doubleAnchorDetonationAttempts++;
@@ -622,35 +628,19 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                BlockHitResult currentHit = blockHit(c);
-                if (!placesInto(currentHit, doubleAnchorPos)) {
-                    BlockHitResult placeTarget = null;
-                    if (doubleAnchorSupport != null && doubleAnchorSupportFace != null) {
-                        placeTarget = visiblePlacementHit(c, doubleAnchorSupport, doubleAnchorSupportFace);
-                    }
-                    if (placeTarget == null) {
-                        placeTarget = findVisiblePlacementHit(c, doubleAnchorPos);
-                        if (placeTarget != null) {
-                            doubleAnchorSupport = placeTarget.getBlockPos();
-                            doubleAnchorSupportFace = placeTarget.getDirection();
-                        }
-                    }
-                    if (placeTarget == null) {
-                        if (++doubleAnchorWaitTicks >= 40) {
-                            failDoubleAnchor(c, "Cannot reach a surviving support face for the same anchor cell.");
-                        }
-                        return false;
-                    }
-                    turnToward(c, placeTarget.getLocation());
+                // Re-place directly into the now-empty original cell. This deliberately
+                // sends an air-cell BlockHitResult instead of looking for a solid neighbour.
+                BlockHitResult airHit = airPlacementHit(c, doubleAnchorPos);
+                if (airHit == null) {
                     if (++doubleAnchorWaitTicks >= 40) {
-                        failDoubleAnchor(c, "Could not aim at the support face for the next anchor.");
+                        failDoubleAnchor(c, "The empty anchor cell is out of reach or obstructed.");
                     }
                     return false;
                 }
 
                 select(c, anchorSlot);
                 var placementResult = c.gameMode.useItemOn(
-                        c.player, InteractionHand.MAIN_HAND, currentHit);
+                        c.player, InteractionHand.MAIN_HAND, airHit);
                 doubleAnchorPlacementAttempts++;
                 if (!placementResult.consumesAction()) {
                     if (doubleAnchorPlacementAttempts >= 3) {
@@ -665,11 +655,6 @@ public final class CombatModuleEngine {
             case WAIT_NEXT_ANCHOR -> {
                 if (doubleAnchorPos != null
                         && c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
-                    BlockHitResult supportHit = findPlacementHit(c, doubleAnchorPos);
-                    if (supportHit != null) {
-                        doubleAnchorSupport = supportHit.getBlockPos();
-                        doubleAnchorSupportFace = supportHit.getDirection();
-                    }
                     doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                     doubleAnchorWaitTicks = 0;
                     doubleAnchorChargeAttempts = 0;
