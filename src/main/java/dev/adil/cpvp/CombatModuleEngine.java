@@ -902,8 +902,10 @@ public final class CombatModuleEngine {
         Vec3 eye = c.player.getEyePosition();
         if (eye.distanceToSqr(candidate.getLocation()) > 4.5 * 4.5) return null;
         Vec3 normal = new Vec3(face.getStepX(), face.getStepY(), face.getStepZ());
+        // Clip slightly inside the support block. Extending along the face normal
+        // would leave the endpoint outside the block, so the ray never crosses the face.
         Vec3 end = candidate.getLocation().add(
-                normal.x * 0.02, normal.y * 0.02, normal.z * 0.02);
+                -normal.x * 0.02, -normal.y * 0.02, -normal.z * 0.02);
         BlockHitResult actual = c.level.clip(new ClipContext(
                 eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
         return actual.getType() == HitResult.Type.BLOCK
