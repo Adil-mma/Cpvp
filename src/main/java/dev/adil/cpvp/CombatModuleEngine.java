@@ -178,9 +178,9 @@ public final class CombatModuleEngine {
     private static boolean isProtectedCrystalItem(Minecraft c) {
         // Protect priority items in either hand, even during the brief ticks before
         // vanilla marks an item as actively being used (notably pearls and shields).
-        return isFastCrystalPriorityItem(c.player.getMainHandItem())
-                || isFastCrystalPriorityItem(c.player.getOffhandItem())
-                || (c.player.isUsingItem() && isFastCrystalPriorityItem(c.player.getUseItem()));
+        return c.player.isUsingItem()
+                || isFastCrystalPriorityItem(c.player.getMainHandItem())
+                || isFastCrystalPriorityItem(c.player.getOffhandItem());
     }
 
     /** Auto Crystal keeps its slot-switching cycle but never interrupts Gap/Shield/Pearl use. */
