@@ -59,8 +59,6 @@ public final class CombatModuleEngine {
     }
     private static DoubleAnchorPhase doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
     private static BlockPos doubleAnchorPos;
-    private static BlockPos doubleAnchorSupport;
-    private static Direction doubleAnchorSupportFace;
     private static int doubleAnchorWaitTicks;
     private static int doubleAnchorChargeAttempts;
     private static int doubleAnchorDetonationAttempts;
@@ -470,13 +468,8 @@ public final class CombatModuleEngine {
                 doubleAnchorPlacementAttempts = 0;
                 doubleAnchorWaitTicks = 0;
 
-                BlockHitResult supportHit = findPlacementHit(c, first);
-                if (supportHit == null) {
-                    failDoubleAnchor(c, "No solid support face found around the first anchor.");
-                    return false;
-                }
-                doubleAnchorSupport = supportHit.getBlockPos();
-                doubleAnchorSupportFace = supportHit.getDirection();
+                // The first anchor is already placed manually. It may be floating;
+                // do not require or cache a neighbouring support block.
                 doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                 return false;
             }
@@ -723,24 +716,6 @@ public final class CombatModuleEngine {
         return new BlockHitResult(point, face, support, false);
     }
 
-    /** Find a real solid neighbour face that places a block into the requested target cell. */
-    private static BlockHitResult findPlacementHit(Minecraft c, BlockPos target) {
-        // The target may be either an existing anchor (support discovery) or an empty
-        // replacement cell (placement); callers validate replaceability when required.
-        if (target == null) return null;
-        Direction[] order = {
-                Direction.DOWN, Direction.NORTH, Direction.SOUTH,
-                Direction.WEST, Direction.EAST, Direction.UP
-        };
-        for (Direction offset : order) {
-            BlockPos support = target.relative(offset);
-            if (!c.level.getBlockState(support).isSolid()) continue;
-            Direction face = offset.getOpposite();
-            return placementHit(support, face);
-        }
-        return null;
-    }
-
     private static int findDoubleAnchorSlot(Minecraft c, CpvpConfig.Settings s) {
         int preferred = s.doubleAnchorAnchorSlot;
         if (preferred >= 0 && preferred < 9
@@ -748,6 +723,28 @@ public final class CombatModuleEngine {
             return preferred;
         }
         return findHotbar(c, Items.RESPAWN_ANCHOR);
+    }
+
+    /**
+     * Build an interaction hit at the empty target cell itself. Unlike ordinary
+     * placement this does not depend on a neighbouring solid block face.
+     * The normal reach and line-of-sight checks are retained before sending it.
+     */
+    private static BlockHitResult airPlacementHit(Minecraft c, BlockPos target) {
+        if (target == null || !c.level.getBlockState(target).canBeReplaced()) return null;
+
+        Vec3 eye = c.player.getEyePosition();
+        Vec3 location = Vec3.atCenterOf(target);
+        if (eye.distanceToSqr(location) > 4.5 * 4.5) return null;
+
+        HitResult obstruction = c.level.clip(new ClipContext(
+                eye, location, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
+        if (obstruction.getType() == HitResult.Type.BLOCK
+                && !((BlockHitResult) obstruction).getBlockPos().equals(target)) {
+            return null;
+        }
+
+        return new BlockHitResult(location, Direction.UP, target, false);
     }
 
     private static boolean chargeAnchor(Minecraft c, BlockPos pos) {
@@ -1001,8 +998,6 @@ public final class CombatModuleEngine {
         doubleAnchorDone = false;
         doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
         doubleAnchorPos = null;
-        doubleAnchorSupport = null;
-        doubleAnchorSupportFace = null;
         doubleAnchorWaitTicks = 0;
         doubleAnchorChargeAttempts = 0;
         doubleAnchorDetonationAttempts = 0;
