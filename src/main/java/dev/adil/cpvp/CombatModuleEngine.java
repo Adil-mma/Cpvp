@@ -50,7 +50,6 @@ public final class CombatModuleEngine {
     private static int safeAnchorChargeWait;
     private static boolean safeAnchorChargeSent;
     private static int safeAnchorCoverWait;
-    private static int safeAnchorCoverSearchWait;
 
     private static int doubleAnchorPass;
     private static boolean doubleAnchorDone;
@@ -60,7 +59,6 @@ public final class CombatModuleEngine {
     }
     private static DoubleAnchorPhase doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
     private static BlockPos doubleAnchorPos;
-    private static BlockPos doubleAnchorNextPos;
     private static BlockPos doubleAnchorSupport;
     private static Direction doubleAnchorSupportFace;
     private static int doubleAnchorWaitTicks;
@@ -300,7 +298,6 @@ public final class CombatModuleEngine {
             safeAnchorChargeWait = 0;
             safeAnchorChargeSent = false;
             safeAnchorCoverWait = 0;
-            safeAnchorCoverSearchWait = 0;
         }
 
         if (safeAnchorPos == null
@@ -378,15 +375,9 @@ public final class CombatModuleEngine {
 
                 BlockHitResult placeTarget = findVisiblePlacementHit(c, safeAnchorCover);
                 if (placeTarget == null) {
-                    // A temporarily obstructed ray must not cancel cover placement immediately.
-                    // Keep the camera still; only aim once a real placeable face is confirmed.
-                    if (++safeAnchorCoverSearchWait >= 12) {
-                        safeAnchorPhase = SafeAnchorPhase.DETONATE;
-                        safeAnchorCoverSearchWait = 0;
-                    }
+                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
                     return false;
                 }
-                safeAnchorCoverSearchWait = 0;
 
                 BlockHitResult currentHit = blockHit(c);
                 if (!placesInto(currentHit, safeAnchorCover)) {
@@ -479,13 +470,13 @@ public final class CombatModuleEngine {
                 doubleAnchorPlacementAttempts = 0;
                 doubleAnchorWaitTicks = 0;
 
-                // The first anchor already exists. It can be charged/detonated even if
-                // its original support face is no longer available; support is only
-                // required when placing the next anchor.
                 BlockHitResult supportHit = findPlacementHit(c, first);
-                doubleAnchorSupport = supportHit == null ? null : supportHit.getBlockPos();
-                doubleAnchorSupportFace = supportHit == null ? null : supportHit.getDirection();
-                doubleAnchorNextPos = null;
+                if (supportHit == null) {
+                    failDoubleAnchor(c, "No solid support face found around the first anchor.");
+                    return false;
+                }
+                doubleAnchorSupport = supportHit.getBlockPos();
+                doubleAnchorSupportFace = supportHit.getDirection();
                 doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                 return false;
             }
@@ -625,6 +616,12 @@ public final class CombatModuleEngine {
             }
             case PLACE_NEXT -> {
                 if (doubleAnchorPos == null) return false;
+                if (!c.level.getBlockState(doubleAnchorPos).canBeReplaced()) {
+                    if (++doubleAnchorWaitTicks >= 40) {
+                        failDoubleAnchor(c, "The original anchor cell is not empty after the explosion.");
+                    }
+                    return false;
+                }
 
                 int anchorSlot = findDoubleAnchorSlot(c, s);
                 if (anchorSlot < 0) {
@@ -632,39 +629,28 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                // Prefer the exploded anchor cell. If it has no usable support face,
-                // search nearby replaceable cells instead of stopping the whole sequence.
-                if (doubleAnchorNextPos == null
-                        || !c.level.getBlockState(doubleAnchorNextPos).canBeReplaced()) {
-                    AnchorPlacement alternative = findNearbyAnchorPlacement(c, doubleAnchorPos, 3);
-                    if (alternative == null) {
-                        if (++doubleAnchorWaitTicks >= 40) {
-                            failDoubleAnchor(c, "No reachable nearby cell has a valid anchor support face.");
-                            return false;
-                        }
-                        return false;
-                    }
-                    doubleAnchorNextPos = alternative.target();
-                    doubleAnchorSupport = alternative.hit().getBlockPos();
-                    doubleAnchorSupportFace = alternative.hit().getDirection();
-                    doubleAnchorWaitTicks = 0;
-                }
-
                 BlockHitResult currentHit = blockHit(c);
-                if (!placesInto(currentHit, doubleAnchorNextPos)) {
-                    BlockHitResult placeTarget = findVisiblePlacementHit(c, doubleAnchorNextPos);
+                if (!placesInto(currentHit, doubleAnchorPos)) {
+                    BlockHitResult placeTarget = null;
+                    if (doubleAnchorSupport != null && doubleAnchorSupportFace != null) {
+                        placeTarget = visiblePlacementHit(c, doubleAnchorSupport, doubleAnchorSupportFace);
+                    }
                     if (placeTarget == null) {
-                        doubleAnchorNextPos = null;
+                        placeTarget = findVisiblePlacementHit(c, doubleAnchorPos);
+                        if (placeTarget != null) {
+                            doubleAnchorSupport = placeTarget.getBlockPos();
+                            doubleAnchorSupportFace = placeTarget.getDirection();
+                        }
+                    }
+                    if (placeTarget == null) {
                         if (++doubleAnchorWaitTicks >= 40) {
-                            failDoubleAnchor(c, "Nearby anchor cells have no visible support face within reach.");
+                            failDoubleAnchor(c, "Cannot reach a surviving support face for the same anchor cell.");
                         }
                         return false;
                     }
-                    doubleAnchorSupport = placeTarget.getBlockPos();
-                    doubleAnchorSupportFace = placeTarget.getDirection();
                     turnToward(c, placeTarget.getLocation());
                     if (++doubleAnchorWaitTicks >= 40) {
-                        failDoubleAnchor(c, "Could not aim at the next anchor placement face.");
+                        failDoubleAnchor(c, "Could not aim at the support face for the next anchor.");
                     }
                     return false;
                 }
@@ -674,9 +660,8 @@ public final class CombatModuleEngine {
                         c.player, InteractionHand.MAIN_HAND, currentHit);
                 doubleAnchorPlacementAttempts++;
                 if (!placementResult.consumesAction()) {
-                    doubleAnchorNextPos = null;
                     if (doubleAnchorPlacementAttempts >= 3) {
-                        failDoubleAnchor(c, "Nearby anchor placement was rejected 3 times.");
+                        failDoubleAnchor(c, "The next anchor placement was rejected 3 times.");
                     }
                     return true;
                 }
@@ -685,13 +670,13 @@ public final class CombatModuleEngine {
                 return true;
             }
             case WAIT_NEXT_ANCHOR -> {
-                if (doubleAnchorNextPos != null
-                        && c.level.getBlockState(doubleAnchorNextPos).is(Blocks.RESPAWN_ANCHOR)) {
-                    doubleAnchorPos = doubleAnchorNextPos;
-                    doubleAnchorNextPos = null;
+                if (doubleAnchorPos != null
+                        && c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
                     BlockHitResult supportHit = findPlacementHit(c, doubleAnchorPos);
-                    doubleAnchorSupport = supportHit == null ? null : supportHit.getBlockPos();
-                    doubleAnchorSupportFace = supportHit == null ? null : supportHit.getDirection();
+                    if (supportHit != null) {
+                        doubleAnchorSupport = supportHit.getBlockPos();
+                        doubleAnchorSupportFace = supportHit.getDirection();
+                    }
                     doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                     doubleAnchorWaitTicks = 0;
                     doubleAnchorChargeAttempts = 0;
@@ -701,11 +686,10 @@ public final class CombatModuleEngine {
                 }
                 if (++doubleAnchorWaitTicks >= 20) {
                     if (doubleAnchorPlacementAttempts < 3) {
-                        doubleAnchorNextPos = null;
                         doubleAnchorPhase = DoubleAnchorPhase.PLACE_NEXT;
                         doubleAnchorWaitTicks = 0;
                     } else {
-                        failDoubleAnchor(c, "No nearby anchor placement was confirmed after 3 attempts.");
+                        failDoubleAnchor(c, "The next anchor was not placed after 3 attempts.");
                     }
                 }
                 return false;
@@ -715,27 +699,6 @@ public final class CombatModuleEngine {
             }
         }
         return false;
-    }
-
-    private record AnchorPlacement(BlockPos target, BlockHitResult hit) {}
-
-    /** Find the nearest reachable replaceable cell with a real visible support face. */
-    private static AnchorPlacement findNearbyAnchorPlacement(Minecraft c, BlockPos origin, int maxRadius) {
-        for (int radius = 0; radius <= maxRadius; radius++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dx = -maxRadius; dx <= maxRadius; dx++) {
-                    for (int dz = -maxRadius; dz <= maxRadius; dz++) {
-                        if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) != radius) continue;
-                        BlockPos target = origin.offset(dx, dy, dz);
-                        if (!c.level.getBlockState(target).canBeReplaced()
-                                || c.player.getBoundingBox().intersects(new AABB(target))) continue;
-                        BlockHitResult hit = findVisiblePlacementHit(c, target);
-                        if (hit != null) return new AnchorPlacement(target, hit);
-                    }
-                }
-            }
-        }
-        return null;
     }
 
     private static void failDoubleAnchor(Minecraft c, String reason) {
@@ -1029,7 +992,6 @@ public final class CombatModuleEngine {
         safeAnchorChargeWait = 0;
         safeAnchorChargeSent = false;
         safeAnchorCoverWait = 0;
-        safeAnchorCoverSearchWait = 0;
         SAFE.reset();
     }
 
@@ -1039,7 +1001,6 @@ public final class CombatModuleEngine {
         doubleAnchorDone = false;
         doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
         doubleAnchorPos = null;
-        doubleAnchorNextPos = null;
         doubleAnchorSupport = null;
         doubleAnchorSupportFace = null;
         doubleAnchorWaitTicks = 0;
