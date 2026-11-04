@@ -194,11 +194,6 @@ public final class CombatModuleEngine {
             return attackCrystal(c, crystal, range, s.autoCrystalStopAboveTarget);
         }
 
-        if (c.hitResult instanceof EntityHitResult entityHit
-                && entityHit.getEntity() instanceof EndCrystal crystal) {
-            return attackCrystal(c, crystal, range, s.autoCrystalStopAboveTarget);
-        }
-
         EndCrystal target = findNearestVisibleCrystal(c, range, s.autoCrystalStopAboveTarget);
         if (target != null) {
             if (c.hitResult instanceof EntityHitResult entityHit
@@ -221,7 +216,10 @@ public final class CombatModuleEngine {
         int crystalSlot = findHotbar(c, Items.END_CRYSTAL);
         if (crystalSlot < 0) return false;
         select(c, crystalSlot);
-        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
+        // Count the interaction attempt even if the server rejects it. The outer TickGate
+        // then prevents a rejected placement from being resent on every client tick.
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+        return true;
     }
 
     /** Hit Crystal only attacks an End Crystal directly under the crosshair. */
@@ -300,11 +298,13 @@ public final class CombatModuleEngine {
             int glowstoneSlot = findHotbar(c, Items.GLOWSTONE);
             if (glowstoneSlot < 0) return false;
             select(c, glowstoneSlot);
-            return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
+            c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+            return true;
         }
 
         if (!selectDetonator(c, s.anchorDetonatorSlot)) return false;
-        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+        return true;
     }
 
     /**
@@ -433,13 +433,9 @@ public final class CombatModuleEngine {
                 }
 
                 select(c, glowstoneSlot);
-                var result = c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, currentHit);
-                if (!result.consumesAction()) {
-                    if (++safeAnchorCoverWait >= 20) {
-                        safeAnchorPhase = SafeAnchorPhase.DETONATE;
-                    }
-                    return false;
-                }
+                // Treat this as one placement attempt even when the server declines it.
+                // WAIT_COVER verifies the authoritative block state before proceeding.
+                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, currentHit);
                 safeAnchorCoverAttempts++;
                 safeAnchorCoverWait = 0;
                 safeAnchorPhase = SafeAnchorPhase.WAIT_COVER;
@@ -805,7 +801,9 @@ public final class CombatModuleEngine {
         }
 
         select(c, glowstone);
-        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
+        // The caller enters WAIT_CHARGE and checks the world state before continuing.
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+        return true;
     }
 
     private static boolean detonateAnchorWithTotem(
@@ -827,7 +825,9 @@ public final class CombatModuleEngine {
         }
 
         select(c, totemSlot);
-        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
+        // The caller enters WAIT_DETONATION and verifies that the anchor disappeared.
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+        return true;
     }
 
     private static void turnToward(Minecraft c, Vec3 target) {
