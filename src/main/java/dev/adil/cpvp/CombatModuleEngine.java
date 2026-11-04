@@ -258,6 +258,9 @@ public final class CombatModuleEngine {
 
     /** Charge a manually placed anchor once and detonate with the chosen slot. */
     private static boolean anchorMacro(Minecraft c, CpvpConfig.Settings s) {
+        // Do not steal the right-click action while a priority item is being used.
+        if (c.player.isUsingItem() && isFastCrystalPriorityItem(c.player.getUseItem())) return false;
+
         // Only interact with the anchor already under the player's crosshair.
         // Do not rotate the view or synthesize a center hit.
         BlockHitResult hit = blockHit(c);
@@ -286,6 +289,7 @@ public final class CombatModuleEngine {
     private static boolean safeAnchor(Minecraft c, CpvpConfig.Settings s) {
         if (safeAnchorPhase == SafeAnchorPhase.WAIT_ANCHOR) {
             BlockPos aimedAnchor = lookedAtAnchor(c);
+            if (aimedAnchor == null) aimedAnchor = findNearbyUnchargedAnchor(c);
             if (aimedAnchor == null) return false;
             safeAnchorPos = aimedAnchor;
             safeAnchorCover = coverPosition(c.player.blockPosition(), aimedAnchor);
@@ -354,39 +358,56 @@ public final class CombatModuleEngine {
                         && distance < s.safeAnchorSelfDistance;
 
                 if (!shouldProtect
-                        || hasSolidCoverBetween(c, c.player.blockPosition(), safeAnchorPos)
-                        || (safeAnchorCover != null
-                            && c.level.getBlockState(safeAnchorCover).isSolid())) {
+                        || hasSolidCoverBetween(c, c.player.blockPosition(), safeAnchorPos)) {
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    return false;
+                }
+
+                if (safeAnchorCoverAttempts >= 1) {
+                    safeAnchorPhase = SafeAnchorPhase.WAIT_COVER;
                     return false;
                 }
 
                 int glowstoneSlot = findHotbar(c, Items.GLOWSTONE);
-                if (safeAnchorCover == null
-                        || !c.level.getBlockState(safeAnchorCover).canBeReplaced()
-                        || c.player.getBoundingBox().intersects(new AABB(safeAnchorCover))
-                        || glowstoneSlot < 0
-                        || safeAnchorCoverAttempts >= 1) {
+                if (glowstoneSlot < 0) {
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
                     return false;
                 }
 
+                // Recalculate from the player's current position every tick. The player
+                // may have moved since the anchor was first detected.
+                BlockPos candidate = findSafeAnchorCoverPosition(c, safeAnchorPos);
+                if (candidate == null) {
+                    if (++safeAnchorCoverWait >= 20) {
+                        safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    }
+                    return false;
+                }
+                safeAnchorCover = candidate;
+
                 BlockHitResult placeTarget = findVisiblePlacementHit(c, safeAnchorCover);
                 if (placeTarget == null) {
-                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    if (++safeAnchorCoverWait >= 20) {
+                        safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    }
                     return false;
                 }
 
                 BlockHitResult currentHit = blockHit(c);
                 if (!placesInto(currentHit, safeAnchorCover)) {
                     turnToward(c, placeTarget.getLocation());
+                    if (++safeAnchorCoverWait >= 20) {
+                        safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    }
                     return false;
                 }
 
                 select(c, glowstoneSlot);
                 var result = c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, currentHit);
                 if (!result.consumesAction()) {
-                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    if (++safeAnchorCoverWait >= 20) {
+                        safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    }
                     return false;
                 }
                 safeAnchorCoverAttempts++;
@@ -791,6 +812,81 @@ public final class CombatModuleEngine {
         if (value >= 180.0f) value -= 360.0f;
         if (value < -180.0f) value += 360.0f;
         return value;
+    }
+
+    /**
+     * Finds a nearby uncharged anchor when movement makes the crosshair miss it
+     * immediately after placement. Only visible anchors within normal reach qualify.
+     */
+    private static BlockPos findNearbyUnchargedAnchor(Minecraft c) {
+        BlockPos origin = c.player.blockPosition();
+        Vec3 eye = c.player.getEyePosition();
+        BlockPos best = null;
+        double bestDistance = 3.5 * 3.5;
+
+        for (int x = -3; x <= 3; x++) {
+            for (int y = -3; y <= 3; y++) {
+                for (int z = -3; z <= 3; z++) {
+                    BlockPos candidate = origin.offset(x, y, z);
+                    if (!c.level.getBlockState(candidate).is(Blocks.RESPAWN_ANCHOR)
+                            || c.level.getBlockState(candidate).getValue(RespawnAnchorBlock.CHARGE) > 0) {
+                        continue;
+                    }
+                    double distance = eye.distanceToSqr(Vec3.atCenterOf(candidate));
+                    if (distance > bestDistance) continue;
+                    if (visibleAnchorHit(c, candidate) == null) continue;
+                    best = candidate;
+                    bestDistance = distance;
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Pick a replaceable, reachable cell between the player's current position and
+     * the anchor. Recomputed while moving so the cover does not use a stale position.
+     */
+    private static BlockPos findSafeAnchorCoverPosition(Minecraft c, BlockPos anchor) {
+        Vec3 from = c.player.getEyePosition();
+        Vec3 to = Vec3.atCenterOf(anchor);
+        Vec3 segment = to.subtract(from);
+        double lengthSquared = segment.lengthSqr();
+        if (lengthSquared < 1.0) return null;
+
+        BlockPos origin = c.player.blockPosition();
+        BlockPos best = null;
+        double bestScore = Double.MAX_VALUE;
+        AABB playerBox = c.player.getBoundingBox();
+
+        for (int x = -1; x <= 1; x++) {
+            for (int y = -1; y <= 1; y++) {
+                for (int z = -1; z <= 1; z++) {
+                    if (x == 0 && y == 0 && z == 0) continue;
+                    BlockPos candidate = origin.offset(x, y, z);
+                    if (candidate.equals(anchor)
+                            || !c.level.getBlockState(candidate).canBeReplaced()
+                            || playerBox.intersects(new AABB(candidate))) {
+                        continue;
+                    }
+
+                    Vec3 center = Vec3.atCenterOf(candidate);
+                    double t = center.subtract(from).dot(segment) / lengthSquared;
+                    if (t <= 0.02 || t >= 0.92) continue;
+                    Vec3 nearest = from.add(segment.scale(t));
+                    double offLine = center.distanceToSqr(nearest);
+                    if (offLine > 1.15 * 1.15) continue;
+                    if (findVisiblePlacementHit(c, candidate) == null) continue;
+
+                    double score = offLine + t * 0.15;
+                    if (score < bestScore) {
+                        best = candidate;
+                        bestScore = score;
+                    }
+                }
+            }
+        }
+        return best;
     }
 
     private static BlockPos coverPosition(BlockPos player, BlockPos anchor) {
