@@ -49,14 +49,6 @@ public final class CpvpConfig {
         public boolean doubleAnchorEnabled;
         public boolean totemSwapEnabled;
 
-        // Server-side look rotation for world-interaction modules. Defaults preserve legacy behavior.
-        public boolean fastCrystalServerSide;
-        public boolean autoCrystalServerSide;
-        public boolean hitCrystalServerSide;
-        public boolean anchorMacroServerSide;
-        public boolean safeAnchorServerSide;
-        public boolean doubleAnchorServerSide;
-
         // Keyboard codes are GLFW key codes. Values <= -2 encode mouse buttons; -1 means unbound.
         public int fastCrystalBind = -1;
         public int autoCrystalBind = -1;
