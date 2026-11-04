@@ -161,8 +161,7 @@ public final class CombatModuleEngine {
         int crystalSlot = findHotbar(c, Items.END_CRYSTAL);
         if (crystalSlot < 0) return false;
         select(c, crystalSlot);
-        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
-        return true;
+        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
     }
 
     private static boolean isFastCrystalPriorityItem(ItemStack stack) {
@@ -191,7 +190,10 @@ public final class CombatModuleEngine {
             return attackCrystal(c, crystal, range, s.autoCrystalStopAboveTarget);
         }
 
-        if (attackNearestCrystal(c, range, s.autoCrystalStopAboveTarget)) return true;
+        // Do not attack an entity that is outside the crosshair. Turn the actual client
+        // view toward the nearest visible crystal and wait until vanilla's hit result
+        // confirms that the crosshair is on it.
+        aimAtNearestCrystal(c, range, s.autoCrystalStopAboveTarget);
 
         BlockHitResult hit = blockHit(c);
         if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return false;
@@ -225,23 +227,38 @@ public final class CombatModuleEngine {
         return true;
     }
 
-    private static boolean attackNearestCrystal(Minecraft c, double range, boolean stopAbove) {
+    private static void aimAtNearestCrystal(Minecraft c, double range, boolean stopAbove) {
         AABB box = c.player.getBoundingBox().inflate(range);
         List<EndCrystal> crystals = c.level.getEntitiesOfClass(EndCrystal.class, box, EndCrystal::isAlive);
         EndCrystal best = null;
         double bestDist = Double.MAX_VALUE;
         for (EndCrystal crystal : crystals) {
             if (stopAbove && isAbove(c, crystal.getY())) continue;
-            double d = c.player.distanceToSqr(crystal);
-            if (d <= range * range && d < bestDist) {
-                best = crystal;
-                bestDist = d;
-            }
+            double distance = c.player.distanceToSqr(crystal);
+            if (distance > range * range || distance >= bestDist) continue;
+
+            Vec3 aimPoint = crystal.getBoundingBox().getCenter();
+            if (!hasLineOfSight(c, aimPoint)) continue;
+
+            best = crystal;
+            bestDist = distance;
         }
-        if (best == null) return false;
-        c.gameMode.attack(c.player, best);
-        c.player.swing(InteractionHand.MAIN_HAND);
-        return true;
+        if (best == null) return;
+
+        if (c.hitResult instanceof EntityHitResult hit && hit.getEntity() == best) {
+            attackCrystal(c, best, range, stopAbove);
+            return;
+        }
+
+        turnToward(c, best.getBoundingBox().getCenter());
+    }
+
+    /** Uses the same block ray test as vanilla targeting; never selects a crystal through a wall. */
+    private static boolean hasLineOfSight(Minecraft c, Vec3 target) {
+        HitResult obstruction = c.level.clip(new ClipContext(
+                c.player.getEyePosition(), target,
+                ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
+        return obstruction.getType() != HitResult.Type.BLOCK;
     }
 
     private static boolean crystalAbove(Minecraft c, BlockPos base) {
