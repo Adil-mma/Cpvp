@@ -30,7 +30,7 @@ public final class ServerRotation {
         player.connection.send(new ServerboundMovePlayerPacket.Rot(
                 targetYaw, targetPitch, player.onGround(), player.horizontalCollision));
         try {
-            return action.getAsBoolean();
+            return action.get();
         } finally {
             player.connection.send(new ServerboundMovePlayerPacket.Rot(
                     previousYaw, previousPitch, player.onGround(), player.horizontalCollision));
