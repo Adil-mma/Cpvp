@@ -1,6 +1,6 @@
 package dev.adil.cpvp;
 
-import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
@@ -10,10 +10,10 @@ import net.minecraft.world.phys.Vec3;
 public final class ServerRotation {
     private ServerRotation() {}
 
-    public static boolean runFacing(Minecraft client, Vec3 target, BooleanSupplier action) {
+    public static <T> T runFacing(Minecraft client, Vec3 target, Supplier<T> action) {
         if (client == null || client.player == null || client.player.connection == null
                 || target == null) {
-            return action.getAsBoolean();
+            return action.get();
         }
 
         var player = client.player;
