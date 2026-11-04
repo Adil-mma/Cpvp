@@ -19,7 +19,7 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
-import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 /**
  * Client-side tick engine for the Crystal/Anchor modules.
@@ -67,12 +67,12 @@ public final class CombatModuleEngine {
 
     private CombatModuleEngine() {}
 
-    private static boolean actionFacing(Minecraft c, CpvpModule module, Vec3 target,
-            BooleanSupplier action) {
+    private static <T> T actionFacing(Minecraft c, CpvpModule module, Vec3 target,
+            Supplier<T> action) {
         if (module.serverSide(CpvpConfig.settings())) {
             return ServerRotation.runFacing(c, target, action);
         }
-        return action.getAsBoolean();
+        return action.get();
     }
 
     public static void tick(Minecraft c) {
