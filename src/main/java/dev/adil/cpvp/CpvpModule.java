@@ -59,37 +59,6 @@ public enum CpvpModule {
         }
     }
 
-    public boolean supportsServerSide() {
-        return switch (this) {
-            case FAST_CRYSTAL, AUTO_CRYSTAL, HIT_CRYSTAL, ANCHOR_MACRO, SAFE_ANCHOR, DOUBLE_ANCHOR -> true;
-            case AUTO_TOTEM, TOTEM_SWAP -> false;
-        };
-    }
-
-    public boolean serverSide(CpvpConfig.Settings s) {
-        return switch (this) {
-            case FAST_CRYSTAL -> s.fastCrystalServerSide;
-            case AUTO_CRYSTAL -> s.autoCrystalServerSide;
-            case HIT_CRYSTAL -> s.hitCrystalServerSide;
-            case ANCHOR_MACRO -> s.anchorMacroServerSide;
-            case SAFE_ANCHOR -> s.safeAnchorServerSide;
-            case DOUBLE_ANCHOR -> s.doubleAnchorServerSide;
-            case AUTO_TOTEM, TOTEM_SWAP -> false;
-        };
-    }
-
-    public void setServerSide(CpvpConfig.Settings s, boolean enabled) {
-        switch (this) {
-            case FAST_CRYSTAL -> s.fastCrystalServerSide = enabled;
-            case AUTO_CRYSTAL -> s.autoCrystalServerSide = enabled;
-            case HIT_CRYSTAL -> s.hitCrystalServerSide = enabled;
-            case ANCHOR_MACRO -> s.anchorMacroServerSide = enabled;
-            case SAFE_ANCHOR -> s.safeAnchorServerSide = enabled;
-            case DOUBLE_ANCHOR -> s.doubleAnchorServerSide = enabled;
-            case AUTO_TOTEM, TOTEM_SWAP -> { }
-        }
-    }
-
     public int bind(CpvpConfig.Settings s) {
         return switch (this) {
             case FAST_CRYSTAL -> s.fastCrystalBind;
