@@ -290,8 +290,9 @@ public final class CombatModuleEngine {
             int glowstoneSlot = findHotbar(c, Items.GLOWSTONE);
             if (glowstoneSlot < 0) return false;
             select(c, glowstoneSlot);
-            return actionFacing(c, CpvpModule.ANCHOR_MACRO, hit.getLocation(),
-                    () -> c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction());
+            BlockHitResult chargeHit = hit;
+            return actionFacing(c, CpvpModule.ANCHOR_MACRO, chargeHit.getLocation(),
+                    () -> c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, chargeHit).consumesAction());
         }
 
         if (!selectDetonator(c, s.anchorDetonatorSlot)) return false;
@@ -860,9 +861,9 @@ public final class CombatModuleEngine {
         Vec3 eye = c.player.getEyePosition();
         BlockPos best = null;
         double bestDistance = 4.5 * 4.5;
-        for (int x = -4; x <= 4; x++) {
-            for (int y = -4; y <= 4; y++) {
-                for (int z = -4; z <= 4; z++) {
+        for (int x = -3; x <= 3; x++) {
+            for (int y = -3; y <= 3; y++) {
+                for (int z = -3; z <= 3; z++) {
                     BlockPos candidate = origin.offset(x, y, z);
                     if (!c.level.getBlockState(candidate).is(Blocks.RESPAWN_ANCHOR)) continue;
                     double distance = eye.distanceToSqr(Vec3.atCenterOf(candidate));
