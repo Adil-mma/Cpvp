@@ -505,6 +505,9 @@ public final class CombatModuleEngine {
         switch (doubleAnchorPhase) {
             case WAIT_FIRST_ANCHOR -> {
                 BlockPos first = lookedAtAnchor(c);
+                if (first == null && CpvpModule.DOUBLE_ANCHOR.serverSide(s)) {
+                    first = findNearestVisibleAnchor(c);
+                }
                 if (first == null) return false;
                 doubleAnchorPos = first;
                 doubleAnchorPass = 0;
@@ -785,11 +788,11 @@ public final class CombatModuleEngine {
         int glowstone = findHotbar(c, Items.GLOWSTONE);
         if (glowstone < 0) return false;
 
-        BlockHitResult hit = CpvpModuleServerMode(module)
+        BlockHitResult hit = isServerSide(module)
                 ? visibleAnchorHit(c, pos) : blockHit(c);
         if (hit == null || !hit.getBlockPos().equals(pos)) {
             BlockHitResult target = visibleAnchorHit(c, pos);
-            if (target != null && !CpvpModuleServerMode(module)) turnToward(c, target.getLocation());
+            if (target != null && !isServerSide(module)) turnToward(c, target.getLocation());
             return false;
         }
 
@@ -799,7 +802,7 @@ public final class CombatModuleEngine {
                 () -> c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, finalHit).consumesAction());
     }
 
-    private static boolean CpvpModuleServerMode(CpvpModule module) {
+    private static boolean isServerSide(CpvpModule module) {
         return module.serverSide(CpvpConfig.settings());
     }
 
@@ -814,11 +817,11 @@ public final class CombatModuleEngine {
         }
         if (totemSlot < 0) return false;
 
-        BlockHitResult hit = CpvpModuleServerMode(module)
+        BlockHitResult hit = isServerSide(module)
                 ? visibleAnchorHitAvoiding(c, pos, avoidedCell) : blockHit(c);
         if (hit == null || !hit.getBlockPos().equals(pos)) {
             BlockHitResult target = visibleAnchorHitAvoiding(c, pos, avoidedCell);
-            if (target != null && !CpvpModuleServerMode(module)) turnToward(c, target.getLocation());
+            if (target != null && !isServerSide(module)) turnToward(c, target.getLocation());
             return false;
         }
 
