@@ -1,6 +1,7 @@
 package dev.adil.cpvp;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.core.Direction;
@@ -39,6 +40,7 @@ public final class CombatModuleEngine {
     private static final TickGate SAFE = new TickGate();
     private static final TickGate DOUBLE = new TickGate();
     private static final TickGate DOUBLE_STAGE = new TickGate();
+    private static ClientLevel activeLevel;
 
     private enum SafeAnchorPhase { WAIT_ANCHOR, CHARGE, WAIT_CHARGE, COVER, WAIT_COVER, RESTORE_VIEW, DETONATE, WAIT_DETONATION }
     private static SafeAnchorPhase safeAnchorPhase = SafeAnchorPhase.WAIT_ANCHOR;
@@ -77,10 +79,15 @@ public final class CombatModuleEngine {
         if (!s.doubleAnchorEnabled) resetDoubleAnchorProgress();
 
         if (c.player == null || c.level == null || c.gameMode == null || c.player.isSpectator()) {
-            resetHoldState();
-            resetSafeAnchorProgress();
-            resetDoubleAnchorProgress();
+            activeLevel = null;
+            resetWorldState();
             return;
+        }
+
+        // Never carry a multi-step interaction into another dimension/world instance.
+        if (activeLevel != c.level) {
+            activeLevel = c.level;
+            resetWorldState();
         }
         // Keep multi-step anchor phases while a GUI is open, but do not interact through it.
         if (c.gui.screen() != null) {
@@ -1104,6 +1111,20 @@ public final class CombatModuleEngine {
 
     private static void select(Minecraft c, int slot) {
         if (slot >= 0 && slot < 9) c.player.getInventory().setSelectedSlot(slot);
+    }
+
+    /** Reset every retained action/state when the client world session changes. */
+    private static void resetWorldState() {
+        FAST.reset();
+        AUTO.reset();
+        HIT.reset();
+        MACRO.reset();
+        MACRO_STAGE.reset();
+        SAFE.reset();
+        DOUBLE.reset();
+        DOUBLE_STAGE.reset();
+        resetSafeAnchorProgress();
+        resetDoubleAnchorProgress();
     }
 
     /** Resets hold-only module timers on release or GUI changes. */
