@@ -190,10 +190,17 @@ public final class CombatModuleEngine {
             return attackCrystal(c, crystal, range, s.autoCrystalStopAboveTarget);
         }
 
-        // Do not attack an entity that is outside the crosshair. Turn the actual client
-        // view toward the nearest visible crystal and wait until vanilla's hit result
-        // confirms that the crosshair is on it.
-        aimAtNearestCrystal(c, range, s.autoCrystalStopAboveTarget);
+        // If a crystal is present, aim at it first and do not run the placement
+        // path using the previous tick's (now stale) block hit result.
+        EndCrystal target = findNearestVisibleCrystal(c, range, s.autoCrystalStopAboveTarget);
+        if (target != null) {
+            if (c.hitResult instanceof EntityHitResult entityHit
+                    && entityHit.getEntity() == target) {
+                return attackCrystal(c, target, range, s.autoCrystalStopAboveTarget);
+            }
+            turnToward(c, target.getBoundingBox().getCenter());
+            return false;
+        }
 
         BlockHitResult hit = blockHit(c);
         if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return false;
@@ -227,7 +234,7 @@ public final class CombatModuleEngine {
         return true;
     }
 
-    private static void aimAtNearestCrystal(Minecraft c, double range, boolean stopAbove) {
+    private static EndCrystal findNearestVisibleCrystal(Minecraft c, double range, boolean stopAbove) {
         AABB box = c.player.getBoundingBox().inflate(range);
         List<EndCrystal> crystals = c.level.getEntitiesOfClass(EndCrystal.class, box, EndCrystal::isAlive);
         EndCrystal best = null;
@@ -237,20 +244,12 @@ public final class CombatModuleEngine {
             double distance = c.player.distanceToSqr(crystal);
             if (distance > range * range || distance >= bestDist) continue;
 
-            Vec3 aimPoint = crystal.getBoundingBox().getCenter();
-            if (!hasLineOfSight(c, aimPoint)) continue;
+            if (!hasLineOfSight(c, crystal.getBoundingBox().getCenter())) continue;
 
             best = crystal;
             bestDist = distance;
         }
-        if (best == null) return;
-
-        if (c.hitResult instanceof EntityHitResult hit && hit.getEntity() == best) {
-            attackCrystal(c, best, range, stopAbove);
-            return;
-        }
-
-        turnToward(c, best.getBoundingBox().getCenter());
+        return best;
     }
 
     /** Uses the same block ray test as vanilla targeting; never selects a crystal through a wall. */
