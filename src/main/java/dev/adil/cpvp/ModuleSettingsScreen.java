@@ -25,7 +25,7 @@ public final class ModuleSettingsScreen extends Screen {
     }
 
     private String[] labels() {
-        String[] base = switch (module) {
+        return switch (module) {
             case FAST_CRYSTAL -> new String[] { "Toggle key", "Delay range", "Only while holding use" };
             case AUTO_CRYSTAL -> new String[] { "Toggle key", "Target range", "Delay range", "Stop above target" };
             case HIT_CRYSTAL -> new String[] { "Toggle key", "Hit range", "Delay range", "Stop above target" };
@@ -35,16 +35,9 @@ public final class ModuleSettingsScreen extends Screen {
             case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Stage delay", "Macro passes", "Anchor hotbar slot" };
             case TOTEM_SWAP -> new String[] { "Toggle key", "Swap delay" };
         };
-        if (!module.supportsServerSide()) return base;
-        String[] extended = java.util.Arrays.copyOf(base, base.length + 1);
-        extended[base.length] = "Action side";
-        return extended;
     }
 
     private boolean isBindRow(int row) { return row == 0; }
-    private boolean isSideRow(int row) {
-        return module.supportsServerSide() && row == labels().length - 1;
-    }
 
     private boolean isRangeRow(int row) {
         return switch (module) {
@@ -79,7 +72,6 @@ public final class ModuleSettingsScreen extends Screen {
             int[] bounds = delayBounds(row);
             return bounds[0] + " - " + bounds[1] + " ticks";
         }
-        if (isSideRow(row)) return module.serverSide(s) ? "SERVER" : "CLIENT";
         return switch (module) {
             case FAST_CRYSTAL -> onOff(s.fastCrystalOnlyWhileHolding);
             case AUTO_CRYSTAL -> row == 1 ? fmt(s.autoCrystalRange) + " blocks" : onOff(s.autoCrystalStopAboveTarget);
@@ -218,9 +210,9 @@ public final class ModuleSettingsScreen extends Screen {
                 if (isBindRow(i)) {
                     int color = listeningForBind ? 0xFFFFC56D : 0xFF9BB6FF;
                     g.text(font, Component.literal(value(i)), x + 142, ry + 11, color, false);
-                } else if (isToggleRow(i) || isSideRow(i)) {
+                } else if (isToggleRow(i)) {
                     String v = value(i);
-                    int color = (v.equals("ON") || v.equals("SERVER")) ? 0xFF73E0A0 : 0xFFDBA86A;
+                    int color = v.equals("ON") ? 0xFF73E0A0 : 0xFFDBA86A;
                     g.text(font, Component.literal(v), x + boxW - 76, ry + 11, color, true);
                 } else {
                     int controlsX = x + boxW - 118;
@@ -334,7 +326,7 @@ public final class ModuleSettingsScreen extends Screen {
                 return true;
             }
 
-            if (isToggleRow(row) || isSideRow(row)) {
+            if (isToggleRow(row)) {
                 changeSetting(row, 1);
             } else {
                 int controlsX = x + boxW - 122;
@@ -413,10 +405,6 @@ public final class ModuleSettingsScreen extends Screen {
             else setDelayBounds(row, 1, 2);
             return;
         }
-        if (isSideRow(row)) {
-            module.setServerSide(s, false);
-            return;
-        }
 
         switch (module) {
             case FAST_CRYSTAL -> s.fastCrystalOnlyWhileHolding = true;
@@ -451,10 +439,6 @@ public final class ModuleSettingsScreen extends Screen {
 
     private void changeSetting(int row, int direction) {
         CpvpConfig.Settings s = CpvpConfig.settings();
-        if (isSideRow(row)) {
-            module.setServerSide(s, !module.serverSide(s));
-            return;
-        }
         switch (module) {
             case FAST_CRYSTAL -> { if (row == 2) s.fastCrystalOnlyWhileHolding = !s.fastCrystalOnlyWhileHolding; }
             case AUTO_CRYSTAL -> {
