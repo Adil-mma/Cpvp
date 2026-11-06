@@ -610,11 +610,9 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                // First detonation uses the Anchor slot. After the replacement anchor
-                // has been placed and charged, the next detonation switches to Totem.
-                int detonatorSlot = doubleAnchorPass == 0
-                        ? findDoubleAnchorSlot(c, s)
-                        : findHotbar(c, Items.TOTEM_OF_UNDYING);
+                // Use the configured Respawn Anchor slot for every detonation.
+                // The replacement anchor follows the same manual sequence as the first.
+                int detonatorSlot = findDoubleAnchorSlot(c, s);
                 if (detonatorSlot < 0) {
                     failDoubleAnchor(c, doubleAnchorPass == 0
                             ? "Respawn Anchor stack not found in the hotbar."
