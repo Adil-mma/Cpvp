@@ -104,7 +104,7 @@ public final class CombatModuleEngine {
 
         // Fast Crystal is independent from Hit Crystal: on a block hit it places,
         // while Hit Crystal can still attack an entity hit in the same tick.
-        if (s.fastCrystalEnabled
+        if (s.fastCrystalEnabled && !s.autoCrystalEnabled
                 && (!s.fastCrystalOnlyWhileHolding || useHeld)
                 && FAST.ready() && fastCrystal(c)) {
             FAST.start(s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks);
