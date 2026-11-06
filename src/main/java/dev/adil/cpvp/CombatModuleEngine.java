@@ -31,6 +31,7 @@ import java.util.List;
 public final class CombatModuleEngine {
     /** Player feet must be this far above the crystal/base surface to count as "above". */
     private static final double ABOVE_MARGIN = 0.05;
+    private static final int DOUBLE_ANCHOR_DETONATIONS = 2;
 
     private static final TickGate FAST = new TickGate();
     private static final TickGate AUTO = new TickGate();
@@ -99,20 +100,21 @@ public final class CombatModuleEngine {
 
         if (!useHeld) {
             resetHoldState();
-            if (s.fastCrystalEnabled && !s.fastCrystalOnlyWhileHolding && FAST.ready()
-                    && fastCrystal(c)) {
-                FAST.start(s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks);
-            }
-
-            // Safe Anchor and Double Anchor are state machines: they must continue after
-            // the initial manual anchor placement even when the player releases right-click.
-            processAnchorModules(c, s);
-            return;
         }
 
-        if (s.fastCrystalEnabled && !s.autoCrystalEnabled && !s.hitCrystalEnabled
+        // Fast Crystal is independent from Hit Crystal: on a block hit it places,
+        // while Hit Crystal can still attack an entity hit in the same tick.
+        if (s.fastCrystalEnabled
+                && (!s.fastCrystalOnlyWhileHolding || useHeld)
                 && FAST.ready() && fastCrystal(c)) {
             FAST.start(s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks);
+        }
+
+        if (!useHeld) {
+            // Safe Anchor and Double Anchor continue after the initial manual placement,
+            // even when the player releases right-click.
+            processAnchorModules(c, s);
+            return;
         }
 
         if (s.autoCrystalEnabled) {
@@ -216,7 +218,8 @@ public final class CombatModuleEngine {
         BlockHitResult hit = blockHit(c);
         if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return false;
         BlockPos base = hit.getBlockPos();
-        if (s.autoCrystalStopAboveTarget && isAbove(c, base.getY() + 1.0)) return false;
+        if (s.autoCrystalStopAboveTarget
+                && isAtOrAboveSurface(c, base.getY() + 1.0)) return false;
         if (c.player.distanceToSqr(Vec3.atCenterOf(base)) > range * range) return false;
         if (crystalAbove(c, base)) return false;
 
@@ -241,7 +244,7 @@ public final class CombatModuleEngine {
 
     private static boolean attackCrystal(Minecraft c, EndCrystal crystal, double range, boolean stopAbove) {
         if (!crystal.isAlive()) return false;
-        if (stopAbove && isAbove(c, crystal.getY())) return false;
+        if (stopAbove && isAtOrAboveCrystalBase(c, crystal)) return false;
         if (c.player.distanceToSqr(crystal) > range * range) return false;
         c.gameMode.attack(c.player, crystal);
         c.player.swing(InteractionHand.MAIN_HAND);
@@ -257,7 +260,7 @@ public final class CombatModuleEngine {
         double bestDistance = Double.MAX_VALUE;
 
         for (EndCrystal crystal : crystals) {
-            if (stopAbove && isAbove(c, crystal.getY())) continue;
+            if (stopAbove && isAtOrAboveCrystalBase(c, crystal)) continue;
             double distance = c.player.distanceToSqr(crystal);
             if (distance > range * range || distance >= bestDistance) continue;
             if (!hasLineOfSight(c, crystal.getBoundingBox().getCenter())) continue;
@@ -280,9 +283,19 @@ public final class CombatModuleEngine {
         return !c.level.getEntitiesOfClass(EndCrystal.class, box, EndCrystal::isAlive).isEmpty();
     }
 
-    /** True when the player's feet are clearly higher than {@code surfaceY}. */
-    private static boolean isAbove(Minecraft c, double surfaceY) {
-        return c.player.getY() > surfaceY + ABOVE_MARGIN;
+    /** Treat the obsidian/bedrock top surface as the crystal's height reference. */
+    private static boolean isAtOrAboveCrystalBase(Minecraft c, EndCrystal crystal) {
+        BlockPos base = crystal.blockPosition().below();
+        if (!isCrystalBase(c, base)) {
+            base = crystal.blockPosition();
+        }
+        return isCrystalBase(c, base)
+                && isAtOrAboveSurface(c, base.getY() + 1.0);
+    }
+
+    /** Stop when the player's feet are at the base's top level or higher. */
+    private static boolean isAtOrAboveSurface(Minecraft c, double surfaceY) {
+        return c.player.getY() >= surfaceY - ABOVE_MARGIN;
     }
 
     // ----------------------------------------------------------------- anchors
@@ -519,7 +532,16 @@ public final class CombatModuleEngine {
      * crosshair ray before interacting and reuses the original anchor cell after an explosion.
      */
     private static boolean doubleAnchor(Minecraft c, CpvpConfig.Settings s) {
-        if (doubleAnchorDone || doubleAnchorPhase == DoubleAnchorPhase.DONE) return false;
+        if (doubleAnchorDone || doubleAnchorPhase == DoubleAnchorPhase.DONE) {
+            // A failed run remains paused while its anchor is still present. Once that
+            // anchor is gone, allow the enabled module to start on the next manual anchor.
+            if (doubleAnchorPos != null
+                    && !c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                resetDoubleAnchorProgress();
+            } else {
+                return false;
+            }
+        }
 
         switch (doubleAnchorPhase) {
             case WAIT_FIRST_ANCHOR -> {
@@ -614,9 +636,7 @@ public final class CombatModuleEngine {
                 // The replacement anchor follows the same manual sequence as the first.
                 int detonatorSlot = findDoubleAnchorSlot(c, s);
                 if (detonatorSlot < 0) {
-                    failDoubleAnchor(c, doubleAnchorPass == 0
-                            ? "Respawn Anchor stack not found in the hotbar."
-                            : "Totem of Undying not found in the hotbar.");
+                    failDoubleAnchor(c, "Respawn Anchor stack not found in the hotbar.");
                     return false;
                 }
 
@@ -656,9 +676,10 @@ public final class CombatModuleEngine {
                     doubleAnchorPass++;
                     doubleAnchorWaitTicks = 0;
                     doubleAnchorDetonationAttempts = 0;
-                    if (doubleAnchorPass >= s.doubleAnchorPasses) {
-                        doubleAnchorDone = true;
-                        doubleAnchorPhase = DoubleAnchorPhase.DONE;
+                    if (doubleAnchorPass >= DOUBLE_ANCHOR_DETONATIONS) {
+                        // The two detonations are complete. Re-arm the module so the
+                        // next manually placed anchor starts a fresh two-detonation run.
+                        resetDoubleAnchorProgress();
                     } else {
                         doubleAnchorPhase = DoubleAnchorPhase.PLACE_NEXT;
                     }
