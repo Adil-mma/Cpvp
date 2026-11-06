@@ -32,7 +32,7 @@ public final class ModuleSettingsScreen extends Screen {
             case AUTO_TOTEM -> new String[] { "Toggle key", "Mode", "Backup hotbar slot" };
             case ANCHOR_MACRO -> new String[] { "Toggle key", "Action delay", "Stage delay", "Auto-charge", "Detonator hotbar slot" };
             case SAFE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Cover within distance", "Place glowstone cover", "Totem hotbar slot" };
-            case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Stage delay", "Macro passes", "Anchor hotbar slot" };
+            case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Stage delay", "Anchor hotbar slot" };
             case TOTEM_SWAP -> new String[] { "Toggle key", "Swap delay" };
         };
     }
@@ -80,7 +80,7 @@ public final class ModuleSettingsScreen extends Screen {
             case ANCHOR_MACRO -> row == 3 ? onOff(s.anchorMacroAutoCharge) : Integer.toString(s.anchorDetonatorSlot + 1);
             case SAFE_ANCHOR -> row == 2 ? fmt(s.safeAnchorSelfDistance) + " blocks"
                     : row == 3 ? onOff(s.safeAnchorProtectSelf) : Integer.toString(s.safeAnchorTotemSlot + 1);
-            case DOUBLE_ANCHOR -> row == 3 ? Integer.toString(s.doubleAnchorPasses) : Integer.toString(s.doubleAnchorAnchorSlot + 1);
+            case DOUBLE_ANCHOR -> Integer.toString(s.doubleAnchorAnchorSlot + 1);
             case TOTEM_SWAP -> boundsText(s.totemSwapMinDelayTicks, s.totemSwapMaxDelayTicks);
         };
     }
@@ -429,10 +429,7 @@ public final class ModuleSettingsScreen extends Screen {
                 else if (row == 3) s.safeAnchorProtectSelf = true;
                 else s.safeAnchorTotemSlot = 8;
             }
-            case DOUBLE_ANCHOR -> {
-                if (row == 3) s.doubleAnchorPasses = 2;
-                else s.doubleAnchorAnchorSlot = 8;
-            }
+            case DOUBLE_ANCHOR -> s.doubleAnchorAnchorSlot = 8;
             case TOTEM_SWAP -> { }
         }
     }
@@ -463,17 +460,10 @@ public final class ModuleSettingsScreen extends Screen {
                 else if (row == 4) s.safeAnchorTotemSlot = (s.safeAnchorTotemSlot + direction + 9) % 9;
             }
             case DOUBLE_ANCHOR -> {
-                if (row == 3) s.doubleAnchorPasses = wrap(s.doubleAnchorPasses + direction, 2, 4);
-                else if (row == 4) s.doubleAnchorAnchorSlot = (s.doubleAnchorAnchorSlot + direction + 9) % 9;
+                if (row == 3) s.doubleAnchorAnchorSlot = (s.doubleAnchorAnchorSlot + direction + 9) % 9;
             }
             case TOTEM_SWAP -> { }
         }
-    }
-
-    private static int wrap(int v, int min, int max) {
-        if (v < min) return max;
-        if (v > max) return min;
-        return v;
     }
 
     private static double clamp(double v, double min, double max) {
