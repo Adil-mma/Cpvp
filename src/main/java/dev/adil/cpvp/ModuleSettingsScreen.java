@@ -5,6 +5,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.Items;
 import org.lwjgl.glfw.GLFW;
 
 public final class ModuleSettingsScreen extends Screen {
@@ -32,7 +33,7 @@ public final class ModuleSettingsScreen extends Screen {
             case AUTO_TOTEM -> new String[] { "Toggle key", "Mode", "Backup hotbar slot" };
             case ANCHOR_MACRO -> new String[] { "Toggle key", "Action delay", "Stage delay", "Auto-charge", "Detonator hotbar slot" };
             case SAFE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Cover within distance", "Place glowstone cover", "Totem hotbar slot" };
-            case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Stage delay", "Macro passes", "Anchor hotbar slot" };
+            case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Stage delay", "Anchor hotbar slot" };
             case TOTEM_SWAP -> new String[] { "Toggle key", "Swap delay" };
         };
     }
@@ -80,9 +81,26 @@ public final class ModuleSettingsScreen extends Screen {
             case ANCHOR_MACRO -> row == 3 ? onOff(s.anchorMacroAutoCharge) : Integer.toString(s.anchorDetonatorSlot + 1);
             case SAFE_ANCHOR -> row == 2 ? fmt(s.safeAnchorSelfDistance) + " blocks"
                     : row == 3 ? onOff(s.safeAnchorProtectSelf) : Integer.toString(s.safeAnchorTotemSlot + 1);
-            case DOUBLE_ANCHOR -> row == 3 ? Integer.toString(s.doubleAnchorPasses) : Integer.toString(s.doubleAnchorAnchorSlot + 1);
+            case DOUBLE_ANCHOR -> Integer.toString(s.doubleAnchorAnchorSlot + 1);
             case TOTEM_SWAP -> boundsText(s.totemSwapMinDelayTicks, s.totemSwapMaxDelayTicks);
         };
+    }
+
+    /**
+     * Warns when Auto Totem has no active protection and its configured backup slot
+     * does not currently contain a totem. The warning is shown on the slot row itself.
+     */
+    private boolean isBackupSlotWarning(int row) {
+        if (module != CpvpModule.AUTO_TOTEM || row != 2
+                || minecraft == null || minecraft.player == null) {
+            return false;
+        }
+
+        var player = minecraft.player;
+        int backupSlot = CpvpConfig.settings().totemBackupSlot;
+        return player.getOffhandItem().isEmpty()
+                && !player.getMainHandItem().is(Items.TOTEM_OF_UNDYING)
+                && !player.getInventory().getItem(backupSlot).is(Items.TOTEM_OF_UNDYING);
     }
 
     private int[] delayBounds(int row) {
@@ -197,7 +215,8 @@ public final class ModuleSettingsScreen extends Screen {
                     && my >= ry && my < ry + rh - 2;
             g.fill(x + 10, ry, x + boxW - 10, ry + rh - 2,
                     hovered ? 0xFF282D38 : 0xFF090B0F);
-            g.outline(x + 10, ry, boxW - 20, rh - 2, 0xFF303542);
+            g.outline(x + 10, ry, boxW - 20, rh - 2,
+                    isBackupSlotWarning(i) ? 0xFFE05252 : 0xFF303542);
 
             if (isRangeRow(i)) {
                 int[] bounds = delayBounds(i);
@@ -217,7 +236,8 @@ public final class ModuleSettingsScreen extends Screen {
                 } else {
                     int controlsX = x + boxW - 118;
                     g.text(font, Component.literal("−"), controlsX, ry + 10, 0xFF97AFFF, true);
-                    g.text(font, Component.literal(value(i)), controlsX + 20, ry + 11, 0xFFE0D6C9, false);
+                    g.text(font, Component.literal(value(i)), controlsX + 20, ry + 11,
+                            isBackupSlotWarning(i) ? 0xFFFF5555 : 0xFFE0D6C9, false);
                     g.text(font, Component.literal("+"), x + boxW - 49, ry + 10, 0xFF97AFFF, true);
                 }
             }
@@ -429,10 +449,7 @@ public final class ModuleSettingsScreen extends Screen {
                 else if (row == 3) s.safeAnchorProtectSelf = true;
                 else s.safeAnchorTotemSlot = 8;
             }
-            case DOUBLE_ANCHOR -> {
-                if (row == 3) s.doubleAnchorPasses = 2;
-                else s.doubleAnchorAnchorSlot = 8;
-            }
+            case DOUBLE_ANCHOR -> s.doubleAnchorAnchorSlot = 8;
             case TOTEM_SWAP -> { }
         }
     }
@@ -463,17 +480,10 @@ public final class ModuleSettingsScreen extends Screen {
                 else if (row == 4) s.safeAnchorTotemSlot = (s.safeAnchorTotemSlot + direction + 9) % 9;
             }
             case DOUBLE_ANCHOR -> {
-                if (row == 3) s.doubleAnchorPasses = wrap(s.doubleAnchorPasses + direction, 2, 4);
-                else if (row == 4) s.doubleAnchorAnchorSlot = (s.doubleAnchorAnchorSlot + direction + 9) % 9;
+                if (row == 3) s.doubleAnchorAnchorSlot = (s.doubleAnchorAnchorSlot + direction + 9) % 9;
             }
             case TOTEM_SWAP -> { }
         }
-    }
-
-    private static int wrap(int v, int min, int max) {
-        if (v < min) return max;
-        if (v > max) return min;
-        return v;
     }
 
     private static double clamp(double v, double min, double max) {

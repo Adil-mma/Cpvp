@@ -1,6 +1,7 @@
 package dev.adil.cpvp;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.core.Direction;
@@ -30,6 +31,7 @@ import java.util.List;
 public final class CombatModuleEngine {
     /** Player feet must be this far above the crystal/base surface to count as "above". */
     private static final double ABOVE_MARGIN = 0.05;
+    private static final int DOUBLE_ANCHOR_DETONATIONS = 2;
 
     private static final TickGate FAST = new TickGate();
     private static final TickGate AUTO = new TickGate();
@@ -39,8 +41,9 @@ public final class CombatModuleEngine {
     private static final TickGate SAFE = new TickGate();
     private static final TickGate DOUBLE = new TickGate();
     private static final TickGate DOUBLE_STAGE = new TickGate();
+    private static ClientLevel activeLevel;
 
-    private enum SafeAnchorPhase { WAIT_ANCHOR, CHARGE, WAIT_CHARGE, COVER, WAIT_COVER, DETONATE, WAIT_DETONATION }
+    private enum SafeAnchorPhase { WAIT_ANCHOR, CHARGE, WAIT_CHARGE, COVER, WAIT_COVER, RESTORE_VIEW, DETONATE, WAIT_DETONATION }
     private static SafeAnchorPhase safeAnchorPhase = SafeAnchorPhase.WAIT_ANCHOR;
     private static BlockPos safeAnchorPos;
     private static BlockPos safeAnchorCover;
@@ -50,6 +53,9 @@ public final class CombatModuleEngine {
     private static int safeAnchorChargeWait;
     private static boolean safeAnchorChargeSent;
     private static int safeAnchorCoverWait;
+    private static float safeAnchorOriginalYaw;
+    private static float safeAnchorOriginalPitch;
+    private static boolean safeAnchorViewSaved;
 
     private static int doubleAnchorPass;
     private static boolean doubleAnchorDone;
@@ -59,8 +65,6 @@ public final class CombatModuleEngine {
     }
     private static DoubleAnchorPhase doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
     private static BlockPos doubleAnchorPos;
-    private static BlockPos doubleAnchorSupport;
-    private static Direction doubleAnchorSupportFace;
     private static int doubleAnchorWaitTicks;
     private static int doubleAnchorChargeAttempts;
     private static int doubleAnchorDetonationAttempts;
@@ -76,10 +80,15 @@ public final class CombatModuleEngine {
         if (!s.doubleAnchorEnabled) resetDoubleAnchorProgress();
 
         if (c.player == null || c.level == null || c.gameMode == null || c.player.isSpectator()) {
-            resetHoldState();
-            resetSafeAnchorProgress();
-            resetDoubleAnchorProgress();
+            activeLevel = null;
+            resetWorldState();
             return;
+        }
+
+        // Never carry a multi-step interaction into another dimension/world instance.
+        if (activeLevel != c.level) {
+            activeLevel = c.level;
+            resetWorldState();
         }
         // Keep multi-step anchor phases while a GUI is open, but do not interact through it.
         if (c.gui.screen() != null) {
@@ -91,20 +100,21 @@ public final class CombatModuleEngine {
 
         if (!useHeld) {
             resetHoldState();
-            if (s.fastCrystalEnabled && !s.fastCrystalOnlyWhileHolding && FAST.ready()
-                    && fastCrystal(c)) {
-                FAST.start(s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks);
-            }
-
-            // Safe Anchor and Double Anchor are state machines: they must continue after
-            // the initial manual anchor placement even when the player releases right-click.
-            processAnchorModules(c, s);
-            return;
         }
 
-        if (s.fastCrystalEnabled && !s.autoCrystalEnabled && !s.hitCrystalEnabled
+        // Fast Crystal is independent from Hit Crystal: on a block hit it places,
+        // while Hit Crystal can still attack an entity hit in the same tick.
+        if (s.fastCrystalEnabled && !s.autoCrystalEnabled
+                && (!s.fastCrystalOnlyWhileHolding || useHeld)
                 && FAST.ready() && fastCrystal(c)) {
             FAST.start(s.fastCrystalMinDelayTicks, s.fastCrystalMaxDelayTicks);
+        }
+
+        if (!useHeld) {
+            // Safe Anchor and Double Anchor continue after the initial manual placement,
+            // even when the player releases right-click.
+            processAnchorModules(c, s);
+            return;
         }
 
         if (s.autoCrystalEnabled) {
@@ -176,11 +186,11 @@ public final class CombatModuleEngine {
 
     /** True while the player selected or is actively using a protected item. */
     private static boolean isProtectedCrystalItem(Minecraft c) {
-        // Protect priority items in either hand, even during the brief ticks before
-        // vanilla marks an item as actively being used (notably pearls and shields).
-        return c.player.isUsingItem()
-                || isFastCrystalPriorityItem(c.player.getMainHandItem())
-                || isFastCrystalPriorityItem(c.player.getOffhandItem());
+        // Protect only the items that must keep right-click priority. Do not block
+        // unrelated item use such as bows, food, or other tools.
+        return isFastCrystalPriorityItem(c.player.getMainHandItem())
+                || isFastCrystalPriorityItem(c.player.getOffhandItem())
+                || (c.player.isUsingItem() && isFastCrystalPriorityItem(c.player.getUseItem()));
     }
 
     /** Auto Crystal keeps its slot-switching cycle but never interrupts Gap/Shield/Pearl use. */
@@ -193,19 +203,33 @@ public final class CombatModuleEngine {
             return attackCrystal(c, crystal, range, s.autoCrystalStopAboveTarget);
         }
 
-        if (attackNearestCrystal(c, range, s.autoCrystalStopAboveTarget)) return true;
+        EndCrystal target = findNearestVisibleCrystal(c, range, s.autoCrystalStopAboveTarget);
+        if (target != null) {
+            if (c.hitResult instanceof EntityHitResult entityHit
+                    && entityHit.getEntity() == target) {
+                return attackCrystal(c, target, range, s.autoCrystalStopAboveTarget);
+            }
+            // Rotate the visible client camera gradually; attack only after vanilla's
+            // crosshair result actually identifies this crystal.
+            turnToward(c, target.getBoundingBox().getCenter());
+            return false;
+        }
 
         BlockHitResult hit = blockHit(c);
         if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return false;
         BlockPos base = hit.getBlockPos();
-        if (s.autoCrystalStopAboveTarget && isAbove(c, base.getY() + 1.0)) return false;
+        if (s.autoCrystalStopAboveTarget
+                && isAtOrAboveSurface(c, base.getY() + 1.0)) return false;
         if (c.player.distanceToSqr(Vec3.atCenterOf(base)) > range * range) return false;
         if (crystalAbove(c, base)) return false;
 
         int crystalSlot = findHotbar(c, Items.END_CRYSTAL);
         if (crystalSlot < 0) return false;
         select(c, crystalSlot);
-        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
+        // Count the interaction attempt even if the server rejects it. The outer TickGate
+        // then prevents a rejected placement from being resent on every client tick.
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+        return true;
     }
 
     /** Hit Crystal only attacks an End Crystal directly under the crosshair. */
@@ -220,30 +244,38 @@ public final class CombatModuleEngine {
 
     private static boolean attackCrystal(Minecraft c, EndCrystal crystal, double range, boolean stopAbove) {
         if (!crystal.isAlive()) return false;
-        if (stopAbove && isAbove(c, crystal.getY())) return false;
+        if (stopAbove && isAtOrAboveCrystalBase(c, crystal)) return false;
         if (c.player.distanceToSqr(crystal) > range * range) return false;
         c.gameMode.attack(c.player, crystal);
         c.player.swing(InteractionHand.MAIN_HAND);
         return true;
     }
 
-    private static boolean attackNearestCrystal(Minecraft c, double range, boolean stopAbove) {
-        AABB box = c.player.getBoundingBox().inflate(range);
-        List<EndCrystal> crystals = c.level.getEntitiesOfClass(EndCrystal.class, box, EndCrystal::isAlive);
+    private static EndCrystal findNearestVisibleCrystal(
+            Minecraft c, double range, boolean stopAbove) {
+        AABB searchBox = c.player.getBoundingBox().inflate(range);
+        List<EndCrystal> crystals = c.level.getEntitiesOfClass(
+                EndCrystal.class, searchBox, EndCrystal::isAlive);
         EndCrystal best = null;
-        double bestDist = Double.MAX_VALUE;
+        double bestDistance = Double.MAX_VALUE;
+
         for (EndCrystal crystal : crystals) {
-            if (stopAbove && isAbove(c, crystal.getY())) continue;
-            double d = c.player.distanceToSqr(crystal);
-            if (d <= range * range && d < bestDist) {
-                best = crystal;
-                bestDist = d;
-            }
+            if (stopAbove && isAtOrAboveCrystalBase(c, crystal)) continue;
+            double distance = c.player.distanceToSqr(crystal);
+            if (distance > range * range || distance >= bestDistance) continue;
+            if (!hasLineOfSight(c, crystal.getBoundingBox().getCenter())) continue;
+
+            best = crystal;
+            bestDistance = distance;
         }
-        if (best == null) return false;
-        c.gameMode.attack(c.player, best);
-        c.player.swing(InteractionHand.MAIN_HAND);
-        return true;
+        return best;
+    }
+
+    private static boolean hasLineOfSight(Minecraft c, Vec3 target) {
+        HitResult obstruction = c.level.clip(new ClipContext(
+                c.player.getEyePosition(), target,
+                ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
+        return obstruction.getType() != HitResult.Type.BLOCK;
     }
 
     private static boolean crystalAbove(Minecraft c, BlockPos base) {
@@ -251,15 +283,28 @@ public final class CombatModuleEngine {
         return !c.level.getEntitiesOfClass(EndCrystal.class, box, EndCrystal::isAlive).isEmpty();
     }
 
-    /** True when the player's feet are clearly higher than {@code surfaceY}. */
-    private static boolean isAbove(Minecraft c, double surfaceY) {
-        return c.player.getY() > surfaceY + ABOVE_MARGIN;
+    /** Treat the obsidian/bedrock top surface as the crystal's height reference. */
+    private static boolean isAtOrAboveCrystalBase(Minecraft c, EndCrystal crystal) {
+        BlockPos base = crystal.blockPosition().below();
+        if (!isCrystalBase(c, base)) {
+            base = crystal.blockPosition();
+        }
+        return isCrystalBase(c, base)
+                && isAtOrAboveSurface(c, base.getY() + 1.0);
+    }
+
+    /** Stop when the player's feet are at the base's top level or higher. */
+    private static boolean isAtOrAboveSurface(Minecraft c, double surfaceY) {
+        return c.player.getY() >= surfaceY - ABOVE_MARGIN;
     }
 
     // ----------------------------------------------------------------- anchors
 
     /** Charge a manually placed anchor once and detonate with the chosen slot. */
     private static boolean anchorMacro(Minecraft c, CpvpConfig.Settings s) {
+        // Do not steal right-click while a priority item is held or being used.
+        if (isProtectedCrystalItem(c)) return false;
+
         // Only interact with the anchor already under the player's crosshair.
         // Do not rotate the view or synthesize a center hit.
         BlockHitResult hit = blockHit(c);
@@ -273,11 +318,13 @@ public final class CombatModuleEngine {
             int glowstoneSlot = findHotbar(c, Items.GLOWSTONE);
             if (glowstoneSlot < 0) return false;
             select(c, glowstoneSlot);
-            return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
+            c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+            return true;
         }
 
         if (!selectDetonator(c, s.anchorDetonatorSlot)) return false;
-        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+        return true;
     }
 
     /**
@@ -288,9 +335,13 @@ public final class CombatModuleEngine {
     private static boolean safeAnchor(Minecraft c, CpvpConfig.Settings s) {
         if (safeAnchorPhase == SafeAnchorPhase.WAIT_ANCHOR) {
             BlockPos aimedAnchor = lookedAtAnchor(c);
+            if (aimedAnchor == null) aimedAnchor = findNearbyUnchargedAnchor(c);
             if (aimedAnchor == null) return false;
             safeAnchorPos = aimedAnchor;
             safeAnchorCover = coverPosition(c.player.blockPosition(), aimedAnchor);
+            safeAnchorOriginalYaw = c.player.getYRot();
+            safeAnchorOriginalPitch = c.player.getXRot();
+            safeAnchorViewSaved = true;
             safeAnchorPhase = SafeAnchorPhase.CHARGE;
             safeAnchorCoverAttempts = 0;
             safeAnchorDetonationWait = 0;
@@ -356,41 +407,55 @@ public final class CombatModuleEngine {
                         && distance < s.safeAnchorSelfDistance;
 
                 if (!shouldProtect
-                        || hasSolidCoverBetween(c, c.player.blockPosition(), safeAnchorPos)
-                        || (safeAnchorCover != null
-                            && c.level.getBlockState(safeAnchorCover).isSolid())) {
+                        || hasSolidCoverBetween(c, c.player.blockPosition(), safeAnchorPos)) {
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    return false;
+                }
+
+                if (safeAnchorCoverAttempts >= 1) {
+                    safeAnchorPhase = SafeAnchorPhase.WAIT_COVER;
                     return false;
                 }
 
                 int glowstoneSlot = findHotbar(c, Items.GLOWSTONE);
-                if (safeAnchorCover == null
-                        || !c.level.getBlockState(safeAnchorCover).canBeReplaced()
-                        || c.player.getBoundingBox().intersects(new AABB(safeAnchorCover))
-                        || glowstoneSlot < 0
-                        || safeAnchorCoverAttempts >= 1) {
+                if (glowstoneSlot < 0) {
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
                     return false;
                 }
 
+                // Recalculate from the player's current position every tick. The player
+                // may have moved since the anchor was first detected.
+                BlockPos candidate = findSafeAnchorCoverPosition(c, safeAnchorPos);
+                if (candidate == null) {
+                    if (++safeAnchorCoverWait >= 20) {
+                        safeAnchorPhase = safeAnchorViewSaved
+                                ? SafeAnchorPhase.RESTORE_VIEW : SafeAnchorPhase.DETONATE;
+                    }
+                    return false;
+                }
+                safeAnchorCover = candidate;
+
                 BlockHitResult placeTarget = findVisiblePlacementHit(c, safeAnchorCover);
                 if (placeTarget == null) {
-                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    if (++safeAnchorCoverWait >= 20) {
+                        safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    }
                     return false;
                 }
 
                 BlockHitResult currentHit = blockHit(c);
                 if (!placesInto(currentHit, safeAnchorCover)) {
                     turnToward(c, placeTarget.getLocation());
+                    if (++safeAnchorCoverWait >= 20) {
+                        safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    }
                     return false;
                 }
 
                 select(c, glowstoneSlot);
-                var result = c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, currentHit);
-                if (!result.consumesAction()) {
-                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
-                    return false;
-                }
+                // Treat this as one placement attempt even when the server declines it.
+                // WAIT_COVER verifies the authoritative block state before proceeding.
+                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, currentHit);
                 safeAnchorCoverAttempts++;
                 safeAnchorCoverWait = 0;
                 safeAnchorPhase = SafeAnchorPhase.WAIT_COVER;
@@ -399,10 +464,20 @@ public final class CombatModuleEngine {
             case WAIT_COVER -> {
                 if (safeAnchorCover != null
                         && c.level.getBlockState(safeAnchorCover).is(Blocks.GLOWSTONE)) {
-                    safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                    safeAnchorPhase = safeAnchorViewSaved
+                            ? SafeAnchorPhase.RESTORE_VIEW : SafeAnchorPhase.DETONATE;
                     return false;
                 }
                 if (++safeAnchorCoverWait >= 10) {
+                    safeAnchorPhase = safeAnchorViewSaved
+                            ? SafeAnchorPhase.RESTORE_VIEW : SafeAnchorPhase.DETONATE;
+                }
+                return false;
+            }
+            case RESTORE_VIEW -> {
+                if (!safeAnchorViewSaved
+                        || turnTowardRotation(c, safeAnchorOriginalYaw, safeAnchorOriginalPitch)) {
+                    safeAnchorViewSaved = false;
                     safeAnchorPhase = SafeAnchorPhase.DETONATE;
                 }
                 return false;
@@ -457,7 +532,16 @@ public final class CombatModuleEngine {
      * crosshair ray before interacting and reuses the original anchor cell after an explosion.
      */
     private static boolean doubleAnchor(Minecraft c, CpvpConfig.Settings s) {
-        if (doubleAnchorDone || doubleAnchorPhase == DoubleAnchorPhase.DONE) return false;
+        if (doubleAnchorDone || doubleAnchorPhase == DoubleAnchorPhase.DONE) {
+            // A failed run remains paused while its anchor is still present. Once that
+            // anchor is gone, allow the enabled module to start on the next manual anchor.
+            if (doubleAnchorPos != null
+                    && !c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+                resetDoubleAnchorProgress();
+            } else {
+                return false;
+            }
+        }
 
         switch (doubleAnchorPhase) {
             case WAIT_FIRST_ANCHOR -> {
@@ -470,13 +554,8 @@ public final class CombatModuleEngine {
                 doubleAnchorPlacementAttempts = 0;
                 doubleAnchorWaitTicks = 0;
 
-                BlockHitResult supportHit = findPlacementHit(c, first);
-                if (supportHit == null) {
-                    failDoubleAnchor(c, "No solid support face found around the first anchor.");
-                    return false;
-                }
-                doubleAnchorSupport = supportHit.getBlockPos();
-                doubleAnchorSupportFace = supportHit.getDirection();
+                // The first anchor is already placed manually. It may be floating;
+                // do not require or cache a neighbouring support block.
                 doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                 return false;
             }
@@ -553,8 +632,10 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                int anchorSlot = findDoubleAnchorSlot(c, s);
-                if (anchorSlot < 0) {
+                // Use the configured Respawn Anchor slot for every detonation.
+                // The replacement anchor follows the same manual sequence as the first.
+                int detonatorSlot = findDoubleAnchorSlot(c, s);
+                if (detonatorSlot < 0) {
                     failDoubleAnchor(c, "Respawn Anchor stack not found in the hotbar.");
                     return false;
                 }
@@ -575,7 +656,7 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                select(c, anchorSlot);
+                select(c, detonatorSlot);
                 var detonateResult = c.gameMode.useItemOn(
                         c.player, InteractionHand.MAIN_HAND, currentHit);
                 doubleAnchorDetonationAttempts++;
@@ -595,9 +676,10 @@ public final class CombatModuleEngine {
                     doubleAnchorPass++;
                     doubleAnchorWaitTicks = 0;
                     doubleAnchorDetonationAttempts = 0;
-                    if (doubleAnchorPass >= s.doubleAnchorPasses) {
-                        doubleAnchorDone = true;
-                        doubleAnchorPhase = DoubleAnchorPhase.DONE;
+                    if (doubleAnchorPass >= DOUBLE_ANCHOR_DETONATIONS) {
+                        // The two detonations are complete. Re-arm the module so the
+                        // next manually placed anchor starts a fresh two-detonation run.
+                        resetDoubleAnchorProgress();
                     } else {
                         doubleAnchorPhase = DoubleAnchorPhase.PLACE_NEXT;
                     }
@@ -629,35 +711,19 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                BlockHitResult currentHit = blockHit(c);
-                if (!placesInto(currentHit, doubleAnchorPos)) {
-                    BlockHitResult placeTarget = null;
-                    if (doubleAnchorSupport != null && doubleAnchorSupportFace != null) {
-                        placeTarget = visiblePlacementHit(c, doubleAnchorSupport, doubleAnchorSupportFace);
-                    }
-                    if (placeTarget == null) {
-                        placeTarget = findVisiblePlacementHit(c, doubleAnchorPos);
-                        if (placeTarget != null) {
-                            doubleAnchorSupport = placeTarget.getBlockPos();
-                            doubleAnchorSupportFace = placeTarget.getDirection();
-                        }
-                    }
-                    if (placeTarget == null) {
-                        if (++doubleAnchorWaitTicks >= 40) {
-                            failDoubleAnchor(c, "Cannot reach a surviving support face for the same anchor cell.");
-                        }
-                        return false;
-                    }
-                    turnToward(c, placeTarget.getLocation());
+                // Re-place directly into the now-empty original cell. This deliberately
+                // sends an air-cell BlockHitResult instead of looking for a solid neighbour.
+                BlockHitResult airHit = airPlacementHit(c, doubleAnchorPos);
+                if (airHit == null) {
                     if (++doubleAnchorWaitTicks >= 40) {
-                        failDoubleAnchor(c, "Could not aim at the support face for the next anchor.");
+                        failDoubleAnchor(c, "The empty anchor cell is out of reach or obstructed.");
                     }
                     return false;
                 }
 
                 select(c, anchorSlot);
                 var placementResult = c.gameMode.useItemOn(
-                        c.player, InteractionHand.MAIN_HAND, currentHit);
+                        c.player, InteractionHand.MAIN_HAND, airHit);
                 doubleAnchorPlacementAttempts++;
                 if (!placementResult.consumesAction()) {
                     if (doubleAnchorPlacementAttempts >= 3) {
@@ -672,11 +738,6 @@ public final class CombatModuleEngine {
             case WAIT_NEXT_ANCHOR -> {
                 if (doubleAnchorPos != null
                         && c.level.getBlockState(doubleAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
-                    BlockHitResult supportHit = findPlacementHit(c, doubleAnchorPos);
-                    if (supportHit != null) {
-                        doubleAnchorSupport = supportHit.getBlockPos();
-                        doubleAnchorSupportFace = supportHit.getDirection();
-                    }
                     doubleAnchorPhase = DoubleAnchorPhase.CHARGE;
                     doubleAnchorWaitTicks = 0;
                     doubleAnchorChargeAttempts = 0;
@@ -723,24 +784,6 @@ public final class CombatModuleEngine {
         return new BlockHitResult(point, face, support, false);
     }
 
-    /** Find a real solid neighbour face that places a block into the requested target cell. */
-    private static BlockHitResult findPlacementHit(Minecraft c, BlockPos target) {
-        // The target may be either an existing anchor (support discovery) or an empty
-        // replacement cell (placement); callers validate replaceability when required.
-        if (target == null) return null;
-        Direction[] order = {
-                Direction.DOWN, Direction.NORTH, Direction.SOUTH,
-                Direction.WEST, Direction.EAST, Direction.UP
-        };
-        for (Direction offset : order) {
-            BlockPos support = target.relative(offset);
-            if (!c.level.getBlockState(support).isSolid()) continue;
-            Direction face = offset.getOpposite();
-            return placementHit(support, face);
-        }
-        return null;
-    }
-
     private static int findDoubleAnchorSlot(Minecraft c, CpvpConfig.Settings s) {
         int preferred = s.doubleAnchorAnchorSlot;
         if (preferred >= 0 && preferred < 9
@@ -748,6 +791,28 @@ public final class CombatModuleEngine {
             return preferred;
         }
         return findHotbar(c, Items.RESPAWN_ANCHOR);
+    }
+
+    /**
+     * Build an interaction hit at the empty target cell itself. Unlike ordinary
+     * placement this does not depend on a neighbouring solid block face.
+     * The normal reach and line-of-sight checks are retained before sending it.
+     */
+    private static BlockHitResult airPlacementHit(Minecraft c, BlockPos target) {
+        if (target == null || !c.level.getBlockState(target).canBeReplaced()) return null;
+
+        Vec3 eye = c.player.getEyePosition();
+        Vec3 location = Vec3.atCenterOf(target);
+        if (eye.distanceToSqr(location) > 4.5 * 4.5) return null;
+
+        HitResult obstruction = c.level.clip(new ClipContext(
+                eye, location, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, c.player));
+        if (obstruction.getType() == HitResult.Type.BLOCK
+                && !((BlockHitResult) obstruction).getBlockPos().equals(target)) {
+            return null;
+        }
+
+        return new BlockHitResult(location, Direction.UP, target, false);
     }
 
     private static boolean chargeAnchor(Minecraft c, BlockPos pos) {
@@ -762,7 +827,9 @@ public final class CombatModuleEngine {
         }
 
         select(c, glowstone);
-        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
+        // The caller enters WAIT_CHARGE and checks the world state before continuing.
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+        return true;
     }
 
     private static boolean detonateAnchorWithTotem(
@@ -784,7 +851,9 @@ public final class CombatModuleEngine {
         }
 
         select(c, totemSlot);
-        return c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit).consumesAction();
+        // The caller enters WAIT_DETONATION and verifies that the anchor disappeared.
+        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, hit);
+        return true;
     }
 
     private static void turnToward(Minecraft c, Vec3 target) {
@@ -800,6 +869,20 @@ public final class CombatModuleEngine {
                 c.player.getXRot() + clampAngle(pitchDelta, 10.0f))));
     }
 
+    private static boolean turnTowardRotation(Minecraft c, float targetYaw, float targetPitch) {
+        float yawDelta = wrapDegrees(targetYaw - c.player.getYRot());
+        float pitchDelta = targetPitch - c.player.getXRot();
+        if (Math.abs(yawDelta) <= 1.0f && Math.abs(pitchDelta) <= 1.0f) {
+            c.player.setYRot(targetYaw);
+            c.player.setXRot(targetPitch);
+            return true;
+        }
+        c.player.setYRot(c.player.getYRot() + clampAngle(yawDelta, 14.0f));
+        c.player.setXRot(Math.max(-90.0f, Math.min(90.0f,
+                c.player.getXRot() + clampAngle(pitchDelta, 10.0f))));
+        return false;
+    }
+
     private static float clampAngle(float value, float maxStep) {
         return Math.max(-maxStep, Math.min(maxStep, value));
     }
@@ -809,6 +892,81 @@ public final class CombatModuleEngine {
         if (value >= 180.0f) value -= 360.0f;
         if (value < -180.0f) value += 360.0f;
         return value;
+    }
+
+    /**
+     * Finds a nearby uncharged anchor when movement makes the crosshair miss it
+     * immediately after placement. Only visible anchors within normal reach qualify.
+     */
+    private static BlockPos findNearbyUnchargedAnchor(Minecraft c) {
+        BlockPos origin = c.player.blockPosition();
+        Vec3 eye = c.player.getEyePosition();
+        BlockPos best = null;
+        double bestDistance = 3.5 * 3.5;
+
+        for (int x = -3; x <= 3; x++) {
+            for (int y = -3; y <= 3; y++) {
+                for (int z = -3; z <= 3; z++) {
+                    BlockPos candidate = origin.offset(x, y, z);
+                    if (!c.level.getBlockState(candidate).is(Blocks.RESPAWN_ANCHOR)
+                            || c.level.getBlockState(candidate).getValue(RespawnAnchorBlock.CHARGE) > 0) {
+                        continue;
+                    }
+                    double distance = eye.distanceToSqr(Vec3.atCenterOf(candidate));
+                    if (distance > bestDistance) continue;
+                    if (visibleAnchorHit(c, candidate) == null) continue;
+                    best = candidate;
+                    bestDistance = distance;
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Pick a replaceable, reachable cell between the player's current position and
+     * the anchor. Recomputed while moving so the cover does not use a stale position.
+     */
+    private static BlockPos findSafeAnchorCoverPosition(Minecraft c, BlockPos anchor) {
+        Vec3 from = c.player.getEyePosition();
+        Vec3 to = Vec3.atCenterOf(anchor);
+        Vec3 segment = to.subtract(from);
+        double lengthSquared = segment.lengthSqr();
+        if (lengthSquared < 1.0) return null;
+
+        BlockPos origin = c.player.blockPosition();
+        BlockPos best = null;
+        double bestScore = Double.MAX_VALUE;
+        AABB playerBox = c.player.getBoundingBox();
+
+        for (int x = -1; x <= 1; x++) {
+            for (int y = -1; y <= 1; y++) {
+                for (int z = -1; z <= 1; z++) {
+                    if (x == 0 && y == 0 && z == 0) continue;
+                    BlockPos candidate = origin.offset(x, y, z);
+                    if (candidate.equals(anchor)
+                            || !c.level.getBlockState(candidate).canBeReplaced()
+                            || playerBox.intersects(new AABB(candidate))) {
+                        continue;
+                    }
+
+                    Vec3 center = Vec3.atCenterOf(candidate);
+                    double t = center.subtract(from).dot(segment) / lengthSquared;
+                    if (t <= 0.02 || t >= 0.92) continue;
+                    Vec3 nearest = from.add(segment.scale(t));
+                    double offLine = center.distanceToSqr(nearest);
+                    if (offLine > 1.15 * 1.15) continue;
+                    if (findVisiblePlacementHit(c, candidate) == null) continue;
+
+                    double score = offLine + t * 0.15;
+                    if (score < bestScore) {
+                        best = candidate;
+                        bestScore = score;
+                    }
+                }
+            }
+        }
+        return best;
     }
 
     private static BlockPos coverPosition(BlockPos player, BlockPos anchor) {
@@ -974,6 +1132,20 @@ public final class CombatModuleEngine {
         if (slot >= 0 && slot < 9) c.player.getInventory().setSelectedSlot(slot);
     }
 
+    /** Reset every retained action/state when the client world session changes. */
+    private static void resetWorldState() {
+        FAST.reset();
+        AUTO.reset();
+        HIT.reset();
+        MACRO.reset();
+        MACRO_STAGE.reset();
+        SAFE.reset();
+        DOUBLE.reset();
+        DOUBLE_STAGE.reset();
+        resetSafeAnchorProgress();
+        resetDoubleAnchorProgress();
+    }
+
     /** Resets hold-only module timers on release or GUI changes. */
     private static void resetHoldState() {
         AUTO.reset();
@@ -992,6 +1164,9 @@ public final class CombatModuleEngine {
         safeAnchorChargeWait = 0;
         safeAnchorChargeSent = false;
         safeAnchorCoverWait = 0;
+        safeAnchorViewSaved = false;
+        safeAnchorOriginalYaw = 0.0f;
+        safeAnchorOriginalPitch = 0.0f;
         SAFE.reset();
     }
 
@@ -1001,8 +1176,6 @@ public final class CombatModuleEngine {
         doubleAnchorDone = false;
         doubleAnchorPhase = DoubleAnchorPhase.WAIT_FIRST_ANCHOR;
         doubleAnchorPos = null;
-        doubleAnchorSupport = null;
-        doubleAnchorSupportFace = null;
         doubleAnchorWaitTicks = 0;
         doubleAnchorChargeAttempts = 0;
         doubleAnchorDetonationAttempts = 0;
