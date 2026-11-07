@@ -78,7 +78,8 @@ public final class TotemSwapEngine {
     }
 
     private static boolean isSwapExempt(Item item) {
-        return item == Items.WOODEN_AXE || item == Items.STONE_AXE
+        return item == Items.END_CRYSTAL
+                || item == Items.WOODEN_AXE || item == Items.STONE_AXE
                 || item == Items.IRON_AXE || item == Items.GOLDEN_AXE
                 || item == Items.DIAMOND_AXE || item == Items.NETHERITE_AXE
                 || item == Items.WOODEN_PICKAXE || item == Items.STONE_PICKAXE
