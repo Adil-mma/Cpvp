@@ -5,6 +5,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.Items;
 import org.lwjgl.glfw.GLFW;
 
 public final class ModuleSettingsScreen extends Screen {
@@ -83,6 +84,23 @@ public final class ModuleSettingsScreen extends Screen {
             case DOUBLE_ANCHOR -> Integer.toString(s.doubleAnchorAnchorSlot + 1);
             case TOTEM_SWAP -> boundsText(s.totemSwapMinDelayTicks, s.totemSwapMaxDelayTicks);
         };
+    }
+
+    /**
+     * Warns when Auto Totem has no active protection and its configured backup slot
+     * does not currently contain a totem. The warning is shown on the slot row itself.
+     */
+    private boolean isBackupSlotWarning(int row) {
+        if (module != CpvpModule.AUTO_TOTEM || row != 2
+                || minecraft == null || minecraft.player == null) {
+            return false;
+        }
+
+        var player = minecraft.player;
+        int backupSlot = CpvpConfig.settings().totemBackupSlot;
+        return player.getOffhandItem().isEmpty()
+                && !player.getMainHandItem().is(Items.TOTEM_OF_UNDYING)
+                && !player.getInventory().getItem(backupSlot).is(Items.TOTEM_OF_UNDYING);
     }
 
     private int[] delayBounds(int row) {
@@ -197,7 +215,8 @@ public final class ModuleSettingsScreen extends Screen {
                     && my >= ry && my < ry + rh - 2;
             g.fill(x + 10, ry, x + boxW - 10, ry + rh - 2,
                     hovered ? 0xFF282D38 : 0xFF090B0F);
-            g.outline(x + 10, ry, boxW - 20, rh - 2, 0xFF303542);
+            g.outline(x + 10, ry, boxW - 20, rh - 2,
+                    isBackupSlotWarning(i) ? 0xFFE05252 : 0xFF303542);
 
             if (isRangeRow(i)) {
                 int[] bounds = delayBounds(i);
@@ -217,7 +236,8 @@ public final class ModuleSettingsScreen extends Screen {
                 } else {
                     int controlsX = x + boxW - 118;
                     g.text(font, Component.literal("−"), controlsX, ry + 10, 0xFF97AFFF, true);
-                    g.text(font, Component.literal(value(i)), controlsX + 20, ry + 11, 0xFFE0D6C9, false);
+                    g.text(font, Component.literal(value(i)), controlsX + 20, ry + 11,
+                            isBackupSlotWarning(i) ? 0xFFFF5555 : 0xFFE0D6C9, false);
                     g.text(font, Component.literal("+"), x + boxW - 49, ry + 10, 0xFF97AFFF, true);
                 }
             }
