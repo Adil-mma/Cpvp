@@ -67,7 +67,6 @@ public final class CpvpConfig {
         public boolean fastCrystalOnlyWhileHolding = true;
 
         public double autoCrystalRange = 4.0;
-        public boolean autoCrystalDTapEnabled;
         public int autoCrystalMinDelayTicks = 1;
         public int autoCrystalMaxDelayTicks = 2;
         public boolean autoCrystalStopAboveTarget = true;
