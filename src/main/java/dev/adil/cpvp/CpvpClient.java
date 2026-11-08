@@ -22,6 +22,7 @@ public final class CpvpClient implements ClientModInitializer {
         menu = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.cpvp.open_menu", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_INSERT, CATEGORY));
 
+        ClientTickEvents.START_CLIENT_TICK.register(CombatModuleEngine::suppressVanillaUse);
         ClientTickEvents.START_CLIENT_TICK.register(TotemSwapEngine::tick);
 
         ClientTickEvents.END_CLIENT_TICK.register(c -> {

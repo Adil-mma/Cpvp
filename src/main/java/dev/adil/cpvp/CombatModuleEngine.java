@@ -32,6 +32,11 @@ public final class CombatModuleEngine {
     /** Player feet must be this far above the crystal/base surface to count as "above". */
     private static final double ABOVE_MARGIN = 0.05;
     private static final int DOUBLE_ANCHOR_DETONATIONS = 2;
+    /** Safe Anchor's camera turns faster than the default so a moving player is not left behind. */
+    private static final float FAST_YAW_STEP = 40.0f;
+    private static final float FAST_PITCH_STEP = 30.0f;
+    /** Degrees of camera error at which Safe Anchor already sends the cover placement. */
+    private static final double COVER_AIM_TOLERANCE = 3.0;
 
     private static final TickGate FAST = new TickGate();
     private static final TickGate AUTO = new TickGate();
@@ -444,10 +449,16 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
+                // While the player is running the crosshair almost never lands on the exact
+                // cell, so a placement is also sent once the real camera is within a few
+                // degrees of the verified support face (the camera itself is never faked).
                 BlockHitResult currentHit = blockHit(c);
-                if (!placesInto(currentHit, safeAnchorCover)) {
-                    turnToward(c, placeTarget.getLocation());
-                    if (++safeAnchorCoverWait >= 20) {
+                BlockHitResult useHit = placesInto(currentHit, safeAnchorCover) ? currentHit
+                        : angleToDegrees(c, placeTarget.getLocation()) <= COVER_AIM_TOLERANCE
+                                ? placeTarget : null;
+                if (useHit == null) {
+                    turnToward(c, placeTarget.getLocation(), FAST_YAW_STEP, FAST_PITCH_STEP);
+                    if (++safeAnchorCoverWait >= 30) {
                         safeAnchorPhase = SafeAnchorPhase.DETONATE;
                     }
                     return false;
@@ -456,7 +467,7 @@ public final class CombatModuleEngine {
                 select(c, glowstoneSlot);
                 // Treat this as one placement attempt even when the server declines it.
                 // WAIT_COVER verifies the authoritative block state before proceeding.
-                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, currentHit);
+                c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, useHit);
                 safeAnchorCoverAttempts++;
                 safeAnchorCoverWait = 0;
                 safeAnchorPhase = SafeAnchorPhase.WAIT_COVER;
@@ -841,7 +852,7 @@ public final class CombatModuleEngine {
     private static boolean detonateAnchorWithTotem(
             Minecraft c, BlockPos pos, int preferredSlot, BlockPos avoidedCell) {
         int totemSlot = -1;
-        if (preferredSlot >= 0 && preferredSlot < 9 && isDetonator(c, preferredSlot)) {
+        if (preferredSlot >= 0 && preferredSlot < 9 && canDetonateWith(c, preferredSlot)) {
             totemSlot = preferredSlot;
         } else {
             totemSlot = findHotbar(c, Items.TOTEM_OF_UNDYING);
@@ -854,7 +865,9 @@ public final class CombatModuleEngine {
         BlockHitResult hit = blockHit(c);
         if (hit == null || !hit.getBlockPos().equals(pos)) {
             BlockHitResult target = visibleAnchorHitAvoiding(c, pos, avoidedCell);
-            if (target != null) turnToward(c, target.getLocation());
+            if (target != null) {
+                turnToward(c, target.getLocation(), FAST_YAW_STEP, FAST_PITCH_STEP);
+            }
             return false;
         }
 
@@ -865,6 +878,11 @@ public final class CombatModuleEngine {
     }
 
     private static void turnToward(Minecraft c, Vec3 target) {
+        turnToward(c, target, 14.0f, 10.0f);
+    }
+
+    /** Rotates the real client camera by at most the given degrees this tick. */
+    private static void turnToward(Minecraft c, Vec3 target, float maxYawStep, float maxPitchStep) {
         Vec3 delta = target.subtract(c.player.getEyePosition());
         double horizontal = Math.sqrt(delta.x * delta.x + delta.z * delta.z);
         float targetYaw = (float) (Math.toDegrees(Math.atan2(delta.z, delta.x)) - 90.0);
@@ -872,9 +890,17 @@ public final class CombatModuleEngine {
 
         float yawDelta = wrapDegrees(targetYaw - c.player.getYRot());
         float pitchDelta = targetPitch - c.player.getXRot();
-        c.player.setYRot(c.player.getYRot() + clampAngle(yawDelta, 14.0f));
+        c.player.setYRot(c.player.getYRot() + clampAngle(yawDelta, maxYawStep));
         c.player.setXRot(Math.max(-90.0f, Math.min(90.0f,
-                c.player.getXRot() + clampAngle(pitchDelta, 10.0f))));
+                c.player.getXRot() + clampAngle(pitchDelta, maxPitchStep))));
+    }
+
+    /** Angle in degrees between the real look direction and the direction to the target. */
+    private static double angleToDegrees(Minecraft c, Vec3 target) {
+        Vec3 look = c.player.getLookAngle().normalize();
+        Vec3 toTarget = target.subtract(c.player.getEyePosition()).normalize();
+        double dot = Math.max(-1.0, Math.min(1.0, look.dot(toTarget)));
+        return Math.toDegrees(Math.acos(dot));
     }
 
     private static boolean turnTowardRotation(Minecraft c, float targetYaw, float targetPitch) {
@@ -885,10 +911,27 @@ public final class CombatModuleEngine {
             c.player.setXRot(targetPitch);
             return true;
         }
-        c.player.setYRot(c.player.getYRot() + clampAngle(yawDelta, 14.0f));
+        c.player.setYRot(c.player.getYRot() + clampAngle(yawDelta, FAST_YAW_STEP));
         c.player.setXRot(Math.max(-90.0f, Math.min(90.0f,
-                c.player.getXRot() + clampAngle(pitchDelta, 10.0f))));
+                c.player.getXRot() + clampAngle(pitchDelta, FAST_PITCH_STEP))));
         return false;
+    }
+
+    /**
+     * Safe Anchor owns the use button while its sequence runs. Without this, a held
+     * right-click keeps charging the anchor (glowstone in hand) or placing more anchors
+     * next to the module's own actions. Runs at the start of the tick, before vanilla
+     * reads the key. The player must press right-click again for the next anchor.
+     */
+    public static void suppressVanillaUse(Minecraft c) {
+        if (c.player == null || c.gui.screen() != null) return;
+        if (CpvpConfig.settings().safeAnchorEnabled
+                && safeAnchorPhase != SafeAnchorPhase.WAIT_ANCHOR) {
+            c.options.keyUse.setDown(false);
+            while (c.options.keyUse.consumeClick()) {
+                // drop clicks queued for this tick
+            }
+        }
     }
 
     private static float clampAngle(float value, float maxStep) {
@@ -1109,8 +1152,16 @@ public final class CombatModuleEngine {
                 || c.level.getBlockState(pos).is(Blocks.BEDROCK);
     }
 
+    /**
+     * The slot the player chose always wins, whatever it holds (a Respawn Anchor detonates a
+     * charged anchor just fine). Only glowstone cannot detonate: it would charge instead.
+     */
+    private static boolean canDetonateWith(Minecraft c, int slot) {
+        return !c.player.getInventory().getItem(slot).is(Items.GLOWSTONE);
+    }
+
     private static boolean selectDetonator(Minecraft c, int preferredSlot) {
-        if (preferredSlot >= 0 && preferredSlot < 9 && isDetonator(c, preferredSlot)) {
+        if (preferredSlot >= 0 && preferredSlot < 9 && canDetonateWith(c, preferredSlot)) {
             select(c, preferredSlot);
             return true;
         }
