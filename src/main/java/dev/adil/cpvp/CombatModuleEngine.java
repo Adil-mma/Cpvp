@@ -203,21 +203,21 @@ public final class CombatModuleEngine {
             return attackCrystal(c, crystal, range, s.autoCrystalStopAboveTarget);
         }
 
-        EndCrystal target = findNearestVisibleCrystal(c, range, s.autoCrystalStopAboveTarget);
-        if (target != null) {
-            if (c.hitResult instanceof EntityHitResult entityHit
-                    && entityHit.getEntity() == target) {
-                return attackCrystal(c, target, range, s.autoCrystalStopAboveTarget);
-            }
-            // Rotate the visible client camera gradually; attack only after vanilla's
-            // crosshair result actually identifies this crystal.
-            turnToward(c, target.getBoundingBox().getCenter());
+        BlockHitResult hit = blockHit(c);
+        if (hit == null || !isCrystalBase(c, hit.getBlockPos())) {
+            // The camera is only ever moved while the crosshair is on obsidian/bedrock.
+            // Anywhere else Auto Crystal leaves the view completely alone.
             return false;
         }
-
-        BlockHitResult hit = blockHit(c);
-        if (hit == null || !isCrystalBase(c, hit.getBlockPos())) return false;
         BlockPos base = hit.getBlockPos();
+
+        // A crystal already sits on the base under the crosshair: rotate gradually toward
+        // it. The attack itself is sent above, once vanilla's crosshair confirms the crystal.
+        EndCrystal onBase = findCrystalOnBase(c, base, range, s.autoCrystalStopAboveTarget);
+        if (onBase != null) {
+            turnToward(c, onBase.getBoundingBox().getCenter());
+            return false;
+        }
         if (s.autoCrystalStopAboveTarget
                 && isAtOrAboveSurface(c, base.getY() + 1.0)) return false;
         if (c.player.distanceToSqr(Vec3.atCenterOf(base)) > range * range) return false;
@@ -251,15 +251,16 @@ public final class CombatModuleEngine {
         return true;
     }
 
-    private static EndCrystal findNearestVisibleCrystal(
-            Minecraft c, double range, boolean stopAbove) {
-        AABB searchBox = c.player.getBoundingBox().inflate(range);
+    /** The nearest reachable, visible crystal standing on exactly this obsidian/bedrock base. */
+    private static EndCrystal findCrystalOnBase(
+            Minecraft c, BlockPos base, double range, boolean stopAbove) {
         List<EndCrystal> crystals = c.level.getEntitiesOfClass(
-                EndCrystal.class, searchBox, EndCrystal::isAlive);
+                EndCrystal.class, new AABB(base.above()), EndCrystal::isAlive);
         EndCrystal best = null;
         double bestDistance = Double.MAX_VALUE;
 
         for (EndCrystal crystal : crystals) {
+            if (!crystal.blockPosition().equals(base.above())) continue;
             if (stopAbove && isAtOrAboveCrystalBase(c, crystal)) continue;
             double distance = c.player.distanceToSqr(crystal);
             if (distance > range * range || distance >= bestDistance) continue;
@@ -501,7 +502,7 @@ public final class CombatModuleEngine {
                 }
                 if (++safeAnchorDetonationWait >= 40) {
                     c.player.sendSystemMessage(Component.literal(
-                            "[Cpvp] Safe Anchor stopped: no usable Totem or visible anchor face."));
+                            "[Cpvp] Safe Anchor stopped: no usable detonation item or visible anchor face."));
                     resetSafeAnchorProgress();
                 }
                 return false;
@@ -832,14 +833,21 @@ public final class CombatModuleEngine {
         return true;
     }
 
+    /**
+     * Detonates with the hotbar slot chosen in the settings, whatever it holds (a totem by
+     * default). Glowstone and anchors cannot detonate, so only then does it fall back to a
+     * totem elsewhere in the hotbar and finally to any other usable item.
+     */
     private static boolean detonateAnchorWithTotem(
             Minecraft c, BlockPos pos, int preferredSlot, BlockPos avoidedCell) {
         int totemSlot = -1;
-        if (preferredSlot >= 0 && preferredSlot < 9
-                && c.player.getInventory().getItem(preferredSlot).is(Items.TOTEM_OF_UNDYING)) {
+        if (preferredSlot >= 0 && preferredSlot < 9 && isDetonator(c, preferredSlot)) {
             totemSlot = preferredSlot;
         } else {
             totemSlot = findHotbar(c, Items.TOTEM_OF_UNDYING);
+            for (int slot = 0; totemSlot < 0 && slot < 9; slot++) {
+                if (isDetonator(c, slot)) totemSlot = slot;
+            }
         }
         if (totemSlot < 0) return false;
 
