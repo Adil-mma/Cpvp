@@ -32,7 +32,7 @@ public final class ModuleSettingsScreen extends Screen {
             case HIT_CRYSTAL -> new String[] { "Toggle key", "Hit range", "Delay range", "Stop above target" };
             case AUTO_TOTEM -> new String[] { "Toggle key", "Mode", "Backup hotbar slot" };
             case ANCHOR_MACRO -> new String[] { "Toggle key", "Action delay", "Stage delay", "Auto-charge", "Detonator hotbar slot" };
-            case SAFE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Cover within distance", "Place glowstone cover", "Detonation hotbar slot" };
+            case SAFE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Cover within distance", "Place glowstone cover", "Detonation hotbar slot", "Crouch while placing cover" };
             case DOUBLE_ANCHOR -> new String[] { "Toggle key", "Action delay", "Stage delay", "Anchor hotbar slot" };
             case TOTEM_SWAP -> new String[] { "Toggle key", "Swap delay" };
         };
@@ -58,7 +58,7 @@ public final class ModuleSettingsScreen extends Screen {
             case AUTO_CRYSTAL, HIT_CRYSTAL -> row == 3;
             case AUTO_TOTEM -> row == 1;
             case ANCHOR_MACRO -> row == 3;
-            case SAFE_ANCHOR -> row == 3;
+            case SAFE_ANCHOR -> row == 3 || row == 5;
             case DOUBLE_ANCHOR -> false;
             case TOTEM_SWAP -> false;
         };
@@ -80,7 +80,8 @@ public final class ModuleSettingsScreen extends Screen {
             case AUTO_TOTEM -> row == 1 ? s.autoTotemMode : Integer.toString(s.totemBackupSlot + 1);
             case ANCHOR_MACRO -> row == 3 ? onOff(s.anchorMacroAutoCharge) : Integer.toString(s.anchorDetonatorSlot + 1);
             case SAFE_ANCHOR -> row == 2 ? fmt(s.safeAnchorSelfDistance) + " blocks"
-                    : row == 3 ? onOff(s.safeAnchorProtectSelf) : Integer.toString(s.safeAnchorTotemSlot + 1);
+                    : row == 3 ? onOff(s.safeAnchorProtectSelf)
+                    : row == 5 ? onOff(s.safeAnchorCrouch) : Integer.toString(s.safeAnchorTotemSlot + 1);
             case DOUBLE_ANCHOR -> Integer.toString(s.doubleAnchorAnchorSlot + 1);
             case TOTEM_SWAP -> boundsText(s.totemSwapMinDelayTicks, s.totemSwapMaxDelayTicks);
         };
@@ -447,6 +448,7 @@ public final class ModuleSettingsScreen extends Screen {
             case SAFE_ANCHOR -> {
                 if (row == 2) s.safeAnchorSelfDistance = 5.0;
                 else if (row == 3) s.safeAnchorProtectSelf = true;
+                else if (row == 5) s.safeAnchorCrouch = true;
                 else s.safeAnchorTotemSlot = 8;
             }
             case DOUBLE_ANCHOR -> s.doubleAnchorAnchorSlot = 8;
@@ -478,6 +480,7 @@ public final class ModuleSettingsScreen extends Screen {
                 if (row == 2) s.safeAnchorSelfDistance = clamp(s.safeAnchorSelfDistance + direction * 0.5, 2, 8);
                 else if (row == 3) s.safeAnchorProtectSelf = !s.safeAnchorProtectSelf;
                 else if (row == 4) s.safeAnchorTotemSlot = (s.safeAnchorTotemSlot + direction + 9) % 9;
+                else if (row == 5) s.safeAnchorCrouch = !s.safeAnchorCrouch;
             }
             case DOUBLE_ANCHOR -> {
                 if (row == 3) s.doubleAnchorAnchorSlot = (s.doubleAnchorAnchorSlot + direction + 9) % 9;

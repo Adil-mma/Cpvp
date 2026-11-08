@@ -61,6 +61,7 @@ public final class CombatModuleEngine {
     private static float safeAnchorOriginalYaw;
     private static float safeAnchorOriginalPitch;
     private static boolean safeAnchorViewSaved;
+    private static boolean safeAnchorSneaking;
 
     private static int doubleAnchorPass;
     private static boolean doubleAnchorDone;
@@ -359,7 +360,19 @@ public final class CombatModuleEngine {
 
         if (safeAnchorPos == null
                 || !c.level.getBlockState(safeAnchorPos).is(Blocks.RESPAWN_ANCHOR)) {
+            releaseCrouch(c);
             resetSafeAnchorProgress();
+            return false;
+        }
+
+        // Never cover/restore/detonate an anchor that is not charged: charge it first.
+        if ((safeAnchorPhase == SafeAnchorPhase.COVER || safeAnchorPhase == SafeAnchorPhase.WAIT_COVER
+                || safeAnchorPhase == SafeAnchorPhase.RESTORE_VIEW || safeAnchorPhase == SafeAnchorPhase.DETONATE)
+                && c.level.getBlockState(safeAnchorPos).getValue(RespawnAnchorBlock.CHARGE) < 1) {
+            releaseCrouch(c);
+            safeAnchorChargeSent = false;
+            safeAnchorChargeWait = 0;
+            safeAnchorPhase = SafeAnchorPhase.CHARGE;
             return false;
         }
 
@@ -429,6 +442,31 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
+                if (s.safeAnchorCrouch) {
+                    BlockHitResult anchorFace = blockHit(c);
+                    if (anchorFace != null && anchorFace.getBlockPos().equals(safeAnchorPos)
+                            && crouchCoverUsable(c, anchorFace)) {
+                        // Sneak so the anchor ignores the click, then place the glowstone on the
+                        // face under the crosshair. The camera is never moved.
+                        if (!c.player.isShiftKeyDown()) {
+                            c.options.keyShift.setDown(true);
+                            safeAnchorSneaking = true;
+                            if (++safeAnchorCoverWait >= 10) {
+                                releaseCrouch(c);
+                                safeAnchorPhase = SafeAnchorPhase.DETONATE;
+                            }
+                            return false;
+                        }
+                        safeAnchorCover = safeAnchorPos.relative(anchorFace.getDirection());
+                        select(c, glowstoneSlot);
+                        c.gameMode.useItemOn(c.player, InteractionHand.MAIN_HAND, anchorFace);
+                        safeAnchorCoverAttempts++;
+                        safeAnchorCoverWait = 0;
+                        safeAnchorPhase = SafeAnchorPhase.WAIT_COVER;
+                        return true;
+                    }
+                }
+
                 // Recalculate from the player's current position every tick. The player
                 // may have moved since the anchor was first detected.
                 BlockPos candidate = findSafeAnchorCoverPosition(c, safeAnchorPos);
@@ -474,6 +512,11 @@ public final class CombatModuleEngine {
                 return true;
             }
             case WAIT_COVER -> {
+                if (safeAnchorSneaking && (safeAnchorCover == null
+                        || c.level.getBlockState(safeAnchorCover).is(Blocks.GLOWSTONE)
+                        || safeAnchorCoverWait >= 5)) {
+                    releaseCrouch(c);
+                }
                 if (safeAnchorCover != null
                         && c.level.getBlockState(safeAnchorCover).is(Blocks.GLOWSTONE)) {
                     safeAnchorPhase = safeAnchorViewSaved
@@ -1213,7 +1256,23 @@ public final class CombatModuleEngine {
         MACRO_STAGE.reset();
     }
 
+    /** The face under the crosshair must have a free cell the glowstone can occupy. */
+    private static boolean crouchCoverUsable(Minecraft c, BlockHitResult hit) {
+        BlockPos cell = hit.getBlockPos().relative(hit.getDirection());
+        return c.level.getBlockState(cell).canBeReplaced()
+                && c.level.getEntities(c.player, new AABB(cell), e -> !e.isSpectator()).isEmpty()
+                && !c.player.getBoundingBox().intersects(new AABB(cell));
+    }
+
+    private static void releaseCrouch(Minecraft c) {
+        if (safeAnchorSneaking) {
+            c.options.keyShift.setDown(false);
+            safeAnchorSneaking = false;
+        }
+    }
+
     private static void resetSafeAnchorProgress() {
+        if (safeAnchorSneaking) releaseCrouch(Minecraft.getInstance());
         safeAnchorPhase = SafeAnchorPhase.WAIT_ANCHOR;
         safeAnchorPos = null;
         safeAnchorCover = null;

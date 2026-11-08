@@ -87,6 +87,7 @@ public final class CpvpConfig {
         public int safeAnchorMaxDelayTicks = 2;
         public double safeAnchorSelfDistance = 5.0;
         public boolean safeAnchorProtectSelf = true;
+        public boolean safeAnchorCrouch = true;
         /** Hotbar index used to detonate a protected anchor with a totem (default slot 9). */
         public int safeAnchorTotemSlot = 8;
 
