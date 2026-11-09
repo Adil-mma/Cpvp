@@ -2,6 +2,7 @@ package dev.adil.cpvp;
 
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
@@ -164,6 +165,15 @@ public final class CpvpScreen extends Screen {
     }
 
     private int rowTop(int i) { return topY + headerH + rowPad + i * rowStep; }
+
+    @Override
+    public boolean keyPressed(KeyEvent event) {
+        if (CpvpClient.menuKey != null && CpvpClient.menuKey.matches(event)) {
+            if (minecraft != null) minecraft.gui.setScreen(null);
+            return true;
+        }
+        return super.keyPressed(event);
+    }
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {

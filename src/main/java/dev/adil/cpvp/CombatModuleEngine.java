@@ -33,8 +33,8 @@ public final class CombatModuleEngine {
     private static final double ABOVE_MARGIN = 0.05;
     private static final int DOUBLE_ANCHOR_DETONATIONS = 2;
     /** Safe Anchor's camera turns faster than the default so a moving player is not left behind. */
-    private static final float FAST_YAW_STEP = 40.0f;
-    private static final float FAST_PITCH_STEP = 30.0f;
+    private static final float FAST_YAW_STEP = 34.0f;
+    private static final float FAST_PITCH_STEP = 26.0f;
     /** Degrees of camera error at which Safe Anchor already sends the cover placement. */
     private static final double COVER_AIM_TOLERANCE = 3.0;
 
@@ -62,6 +62,7 @@ public final class CombatModuleEngine {
     private static float safeAnchorOriginalPitch;
     private static boolean safeAnchorViewSaved;
     private static boolean safeAnchorSneaking;
+    private static int safeAnchorSneakWait;
 
     private static int doubleAnchorPass;
     private static boolean doubleAnchorDone;
@@ -442,7 +443,7 @@ public final class CombatModuleEngine {
                     return false;
                 }
 
-                if (s.safeAnchorCrouch) {
+                if (s.safeAnchorCrouch || safeAnchorCoverWait >= 8) {
                     BlockHitResult anchorFace = blockHit(c);
                     if (anchorFace != null && anchorFace.getBlockPos().equals(safeAnchorPos)
                             && crouchCoverUsable(c, anchorFace)) {
@@ -451,7 +452,7 @@ public final class CombatModuleEngine {
                         if (!c.player.isShiftKeyDown()) {
                             c.options.keyShift.setDown(true);
                             safeAnchorSneaking = true;
-                            if (++safeAnchorCoverWait >= 10) {
+                            if (++safeAnchorSneakWait >= 10) {
                                 releaseCrouch(c);
                                 safeAnchorPhase = SafeAnchorPhase.DETONATE;
                             }
@@ -472,6 +473,8 @@ public final class CombatModuleEngine {
                 BlockPos candidate = findSafeAnchorCoverPosition(c, safeAnchorPos);
                 if (candidate == null) {
                     if (++safeAnchorCoverWait >= 20) {
+                        c.player.sendSystemMessage(Component.literal(
+                                "[Cpvp] Safe Anchor: no free cell with a visible support face for the cover; detonating without it."));
                         safeAnchorPhase = safeAnchorViewSaved
                                 ? SafeAnchorPhase.RESTORE_VIEW : SafeAnchorPhase.DETONATE;
                     }
@@ -921,7 +924,7 @@ public final class CombatModuleEngine {
     }
 
     private static void turnToward(Minecraft c, Vec3 target) {
-        turnToward(c, target, 14.0f, 10.0f);
+        turnToward(c, target, 26.0f, 20.0f);
     }
 
     /** Rotates the real client camera by at most the given degrees this tick. */
@@ -931,11 +934,42 @@ public final class CombatModuleEngine {
         float targetYaw = (float) (Math.toDegrees(Math.atan2(delta.z, delta.x)) - 90.0);
         float targetPitch = (float) -Math.toDegrees(Math.atan2(delta.y, horizontal));
 
+        smoothTurn(c, targetYaw, targetPitch, maxYawStep, maxPitchStep);
+    }
+
+    private static float aimYawVel;
+    private static float aimPitchVel;
+    private static long aimLastTick = Long.MIN_VALUE;
+
+    /**
+     * Human-like turn: the angular speed ramps up and down (limited acceleration) instead of
+     * jumping, so the camera glides quickly toward the target and settles without overshoot.
+     */
+    private static void smoothTurn(Minecraft c, float targetYaw, float targetPitch,
+                                   float maxYawStep, float maxPitchStep) {
+        long now = c.level.getGameTime();
+        if (now - aimLastTick > 2) {
+            aimYawVel = 0.0f;
+            aimPitchVel = 0.0f;
+        }
+        aimLastTick = now;
         float yawDelta = wrapDegrees(targetYaw - c.player.getYRot());
         float pitchDelta = targetPitch - c.player.getXRot();
-        c.player.setYRot(c.player.getYRot() + easedStep(yawDelta, maxYawStep));
-        c.player.setXRot(Math.max(-90.0f, Math.min(90.0f,
-                c.player.getXRot() + easedStep(pitchDelta, maxPitchStep))));
+        aimYawVel = nextVelocity(aimYawVel, yawDelta, maxYawStep);
+        aimPitchVel = nextVelocity(aimPitchVel, pitchDelta, maxPitchStep);
+        c.player.setYRot(c.player.getYRot() + aimYawVel);
+        c.player.setXRot(Math.max(-90.0f, Math.min(90.0f, c.player.getXRot() + aimPitchVel)));
+    }
+
+    private static float nextVelocity(float vel, float delta, float maxSpeed) {
+        float size = Math.abs(delta);
+        if (size < 0.05f) return 0.0f;
+        float dir = Math.signum(delta);
+        float desired = Math.min(maxSpeed, Math.max(1.0f, size * 0.42f)) * dir;
+        float accel = maxSpeed * 0.45f;
+        float next = vel + Math.max(-accel, Math.min(accel, desired - vel));
+        if (Math.signum(next) != dir) next = desired * 0.25f;
+        return Math.abs(next) > size ? delta : next;
     }
 
     /**
@@ -964,9 +998,7 @@ public final class CombatModuleEngine {
             c.player.setXRot(targetPitch);
             return true;
         }
-        c.player.setYRot(c.player.getYRot() + easedStep(yawDelta, FAST_YAW_STEP));
-        c.player.setXRot(Math.max(-90.0f, Math.min(90.0f,
-                c.player.getXRot() + easedStep(pitchDelta, FAST_PITCH_STEP))));
+        smoothTurn(c, targetYaw, targetPitch, FAST_YAW_STEP, FAST_PITCH_STEP);
         return false;
     }
 
@@ -1043,9 +1075,9 @@ public final class CombatModuleEngine {
         double bestScore = Double.MAX_VALUE;
         AABB playerBox = c.player.getBoundingBox();
 
-        for (int x = -1; x <= 1; x++) {
-            for (int y = -1; y <= 1; y++) {
-                for (int z = -1; z <= 1; z++) {
+        for (int x = -2; x <= 2; x++) {
+            for (int y = -1; y <= 2; y++) {
+                for (int z = -2; z <= 2; z++) {
                     if (x == 0 && y == 0 && z == 0) continue;
                     BlockPos candidate = origin.offset(x, y, z);
                     if (candidate.equals(anchor)
@@ -1056,10 +1088,10 @@ public final class CombatModuleEngine {
 
                     Vec3 center = Vec3.atCenterOf(candidate);
                     double t = center.subtract(from).dot(segment) / lengthSquared;
-                    if (t <= 0.02 || t >= 0.92) continue;
+                    if (t <= 0.02 || t >= 0.95) continue;
                     Vec3 nearest = from.add(segment.scale(t));
                     double offLine = center.distanceToSqr(nearest);
-                    if (offLine > 1.15 * 1.15) continue;
+                    if (offLine > 1.3 * 1.3) continue;
                     if (findVisiblePlacementHit(c, candidate) == null) continue;
 
                     double score = offLine + t * 0.15;
@@ -1279,6 +1311,7 @@ public final class CombatModuleEngine {
             c.options.keyShift.setDown(false);
             safeAnchorSneaking = false;
         }
+        safeAnchorSneakWait = 0;
     }
 
     private static void resetSafeAnchorProgress() {

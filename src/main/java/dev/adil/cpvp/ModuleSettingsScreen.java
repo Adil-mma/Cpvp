@@ -174,7 +174,7 @@ public final class ModuleSettingsScreen extends Screen {
         int full = boxW - 20;
         int half = (full - 4) / 2;
         int at = 40;
-        int i = 0;
+        int i = 1;
         while (i < n) {
             if (isRangeRow(i)) {
                 relX[i] = 10; relY[i] = at; cellW[i] = full; cellH[i] = RANGE_ROW_H;
@@ -190,7 +190,9 @@ public final class ModuleSettingsScreen extends Screen {
                 i += pair ? 2 : 1;
             }
         }
-        boxH = at + 44;
+        boxH = at + 46;
+        // The toggle-key button is a small cell in the bottom-right corner.
+        relX[0] = boxW - 10 - 150; relY[0] = at + 12; cellW[0] = 150; cellH[0] = 24;
         x = (width - boxW) / 2;
         y = Math.max(8, (height - boxH) / 2);
     }
@@ -253,7 +255,7 @@ public final class ModuleSettingsScreen extends Screen {
                 g.text(font, Component.literal(names[i]), cx + 8, ty, 0xFFE0D6C9, false);
                 String v = value(i);
                 if (isBindRow(i)) {
-                    if (listeningForBind) v = "PRESS KEY...";
+                    if (listeningForBind) v = "PRESS KEY";
                     int color = listeningForBind ? 0xFFFFC56D : 0xFF9BB6FF;
                     g.text(font, Component.literal(v), cr - 26 - font.width(v), ty, color, false);
                 } else if (isToggleRow(i)) {
@@ -275,10 +277,10 @@ public final class ModuleSettingsScreen extends Screen {
 
         int footerY = y + boxH - 34;
         g.text(font, Component.literal(listeningForBind
-                        ? "Press a key. Press ESC to cancel. Click a mouse button to bind it."
-                        : "Delays: 0-5 ticks, 1 tick = about 50 ms. Hover a setting for 1 s for help."),
+                        ? "Press a key or click a mouse button. ESC cancels."
+                        : "Delays: 0-5 ticks (1 tick = about 50 ms)."),
                 x + 14, footerY, listeningForBind ? 0xFFFFC56D : 0xFF8ADBA4, false);
-        g.text(font, Component.literal("ESC: back"), x + 14, footerY + 14, 0xFFB9BEC8, false);
+        g.text(font, Component.literal("Hover for help. ESC / menu key: back"), x + 14, footerY + 14, 0xFFB9BEC8, false);
         fx.end(g);
 
         if (fx.hoverReady(hoveredRow) && hoveredRow >= 0) {
@@ -333,6 +335,10 @@ public final class ModuleSettingsScreen extends Screen {
                 listeningForBind = false;
                 return true;
             }
+        }
+        if (CpvpClient.menuKey != null && CpvpClient.menuKey.matches(event)) {
+            if (minecraft != null) minecraft.gui.setScreen(null);
+            return true;
         }
         return super.keyPressed(event);
     }
