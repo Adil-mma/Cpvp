@@ -7,6 +7,7 @@ Minecraft 26.2 client-side Fabric mod.
 - **Open Cpvp menu** is a normal Minecraft keybind under **Options → Controls → Key Binds → Cpvp**. It defaults to Insert, but can be changed there.
 - Left-click a module in the main GUI to toggle it. Right-click a module to open its settings.
 - Each module's **Toggle key** is configured inside that module's settings. Click the row, then press a keyboard key or mouse button.
+- The menu and settings open with a short pop animation. Settings are laid out in two columns, and hovering a module or setting for one second shows a short English description.
 - Each setting has its own reset arrow. Delay rows use the dual-handle 0–5 tick slider.
 - Delay values are client ticks, not milliseconds. At 20 TPS, 1 tick is approximately 50 ms. The min/max value is rolled once per performed action.
 

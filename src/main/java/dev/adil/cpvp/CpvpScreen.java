@@ -40,6 +40,8 @@ public final class CpvpScreen extends Screen {
 
     private int panelW, headerH, rowH, rowStep, rowPad, bottomPad, leftX, rightX, topY, margin, corner;
 
+    private final GuiFx fx = new GuiFx();
+
     public CpvpScreen() { super(Component.literal("Cpvp")); }
 
     private void layout() {
@@ -64,9 +66,16 @@ public final class CpvpScreen extends Screen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float pt) {
         layout();
-        g.fill(0, 0, width, height, DIM);
+        g.fill(0, 0, width, height, fx.fade(DIM));
+        fx.begin(g, width / 2f, topY + headerH + 60);
         drawPanel(g, leftX, "CRISTAL AURA", LEFT, mx, my);
         drawPanel(g, rightX, "ANCHOR AURA", RIGHT, mx, my);
+        fx.end(g);
+
+        CpvpModule hovered = moduleAt(mx, my);
+        if (fx.hoverReady(hovered == null ? -1 : hovered.ordinal()) && hovered != null) {
+            GuiFx.tooltip(g, font, GuiFx.module(hovered), mx, my, width, height);
+        }
         super.extractRenderState(g, mx, my, pt);
     }
 
