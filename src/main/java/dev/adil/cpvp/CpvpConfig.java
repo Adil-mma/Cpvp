@@ -87,6 +87,7 @@ public final class CpvpConfig {
         public int safeAnchorMaxDelayTicks = 2;
         public double safeAnchorSelfDistance = 5.0;
         public boolean safeAnchorProtectSelf = true;
+        public boolean safeAnchorCrouch = true;
         /** Hotbar index used to detonate a protected anchor with a totem (default slot 9). */
         public int safeAnchorTotemSlot = 8;
 
@@ -94,7 +95,6 @@ public final class CpvpConfig {
         public int doubleAnchorMaxDelayTicks = 2;
         public int doubleAnchorMinStageDelayTicks = 1;
         public int doubleAnchorMaxStageDelayTicks = 2;
-        public int doubleAnchorPasses = 2;
         /** Preferred hotbar slot containing the Respawn Anchor stack (default slot 9). */
         public int doubleAnchorAnchorSlot = 8;
 
@@ -106,7 +106,6 @@ public final class CpvpConfig {
             autoTotemMode = autoTotemMode.equalsIgnoreCase("MANUAL") ? "MANUAL" : "AUTO";
             totemBackupSlot = clamp(totemBackupSlot, 0, 8);
             anchorDetonatorSlot = clamp(anchorDetonatorSlot, 0, 8);
-            doubleAnchorPasses = clamp(doubleAnchorPasses, 2, 4);
             doubleAnchorAnchorSlot = clamp(doubleAnchorAnchorSlot, 0, 8);
             autoCrystalRange = clamp(autoCrystalRange, 1.0, 6.0);
             hitCrystalRange = clamp(hitCrystalRange, 1.0, 8.0);

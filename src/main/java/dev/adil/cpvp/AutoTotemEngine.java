@@ -15,6 +15,7 @@ import net.minecraft.world.entity.player.Inventory;
  */
 public final class AutoTotemEngine {
     private static int cooldown;
+    private static int lastManualSelectedSlot = -1;
 
     private AutoTotemEngine() {}
 
@@ -30,18 +31,36 @@ public final class AutoTotemEngine {
 
         boolean manual = cfg.autoTotemMode.equals("MANUAL");
         if (manual) {
-            // Manual mode has no background auto-refill. It only works while the
-            // player's own inventory is open and the cursor is over a totem stack.
-            if (!(c.gui.screen() instanceof InventoryScreen) || p.containerMenu != p.inventoryMenu) {
-                return;
-            }
             if (cooldown > 0) {
                 cooldown--;
+                lastManualSelectedSlot = p.getInventory().getSelectedSlot();
+                return;
+            }
+
+            // In-game manual behavior: selecting a hotbar slot containing a totem
+            // moves that totem into the offhand when the offhand has no totem.
+            if (c.gui.screen() == null && p.containerMenu == p.inventoryMenu) {
+                int selected = p.getInventory().getSelectedSlot();
+                if (selected != lastManualSelectedSlot) {
+                    lastManualSelectedSlot = selected;
+                    if (!p.getOffhandItem().is(Items.TOTEM_OF_UNDYING)
+                            && p.getInventory().getItem(selected).is(Items.TOTEM_OF_UNDYING)) {
+                        c.gameMode.handleContainerInput(p.inventoryMenu.containerId,
+                                36 + selected, Inventory.SLOT_OFFHAND, ContainerInput.SWAP, p);
+                        cooldown = 4;
+                    }
+                }
+                return;
+            }
+
+            // Keep the existing inventory-hover workflow intact.
+            if (!(c.gui.screen() instanceof InventoryScreen) || p.containerMenu != p.inventoryMenu) {
                 return;
             }
             if (tickManual(c, cfg)) cooldown = 4;
             return;
         }
+        lastManualSelectedSlot = -1;
 
         // Auto mode never moves inventory items while another screen/container is open.
         if (c.gui.screen() != null || p.containerMenu != p.inventoryMenu) return;

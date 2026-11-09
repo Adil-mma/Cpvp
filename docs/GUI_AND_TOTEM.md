@@ -1,10 +1,13 @@
 # GUI and Auto Totem
 
-The main Cpvp screen opens with `9`. Left-click a module row to toggle its saved state; right-click to open that module's settings panel. The two main panels are Crystal and Anchor.
+The Cpvp menu opens with the configurable **Open Cpvp menu** keybind. Its default is Insert; change it under **Options → Controls → Key Binds → Cpvp**. Left-click a module row to toggle it and right-click to open its settings.
 
-Auto Totem can be toggled with `L` or from the GUI. Its settings are stored in `config/cpvp.json`:
-- `AUTO`: automatically moves a totem into the offhand when needed.
-- `MANUAL`: while the player inventory is open and the offhand has no totem, hovering the cursor over a totem swaps it into the offhand (the same action as vanilla's "swap to offhand" key).
-- Both modes keep the configured backup hotbar slot stocked with a spare totem whenever no screen is open, so Auto always has one to refill from and Manual always has one ready to hover.
+Auto Totem can be enabled from the GUI or with its configured module key. Settings are stored in config/cpvp.json:
 
-The Crystal and Anchor entries expose separate configuration screens, but automated combat actions for those entries are not implemented in this branch; their status is shown as configuration-only rather than active.
+- **AUTO:** while no screen/container is open, replenishes the offhand and configured backup hotbar slot with vanilla inventory swap operations.
+- **MANUAL:** performs no background swaps. While the player's own inventory is open, hovering a totem swaps it into the offhand. If the offhand already contains a totem, the hovered spare moves to the configured backup hotbar slot; an occupied destination is exchanged back into the source slot.
+- Both modes require the player's own inventory menu. Cpvp does not move items through another container.
+
+Sword Swap is independent from Anchor Macro. It selects the best available hotbar sword on the attack-button press when the crosshair is on another player (never for other entities or air), with any held item except axes and pickaxes (an End Crystal swaps too), then restores the original slot after the configured delay. If the player manually changes the selected slot during the swap, Cpvp cancels the pending restore rather than overriding the manual choice.
+
+Crystal and Anchor modules use the normal client game-mode interaction methods. Auto Crystal only rotates the camera while the crosshair is on obsidian/bedrock carrying a crystal; Safe Anchor and Double Anchor targeting may also rotate it gradually; this is ordinary client yaw/pitch state, not a custom server-rotation packet. Double Anchor's second placement uses a synthetic interaction hit for its air-place mechanic, which servers may reject.

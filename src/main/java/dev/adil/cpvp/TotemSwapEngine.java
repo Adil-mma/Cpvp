@@ -10,8 +10,9 @@ import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Sword Swap: while the crosshair is on another player, temporarily selects the best
- * hotbar sword when the attack button is pressed with an eligible non-sword item.
- * Crystal, axes and pickaxes are intentionally ignored; the previous slot is restored.
+ * hotbar sword when the attack button is pressed with any non-sword item (an End Crystal
+ * included). It never swaps for other entities or for air, and axes and pickaxes are
+ * intentionally ignored; the previous slot is restored afterwards.
  */
 public final class TotemSwapEngine {
     private static boolean wasAttackDown;
@@ -77,9 +78,9 @@ public final class TotemSwapEngine {
                 && target.isAlive();
     }
 
+    /** Only axes and pickaxes keep their slot; everything else (crystal included) swaps. */
     private static boolean isSwapExempt(Item item) {
-        return item == Items.END_CRYSTAL
-                || item == Items.WOODEN_AXE || item == Items.STONE_AXE
+        return item == Items.WOODEN_AXE || item == Items.STONE_AXE
                 || item == Items.IRON_AXE || item == Items.GOLDEN_AXE
                 || item == Items.DIAMOND_AXE || item == Items.NETHERITE_AXE
                 || item == Items.WOODEN_PICKAXE || item == Items.STONE_PICKAXE

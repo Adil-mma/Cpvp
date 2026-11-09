@@ -4,24 +4,29 @@ Minecraft 26.2 client-side Fabric mod.
 
 ## Controls and settings
 
-- **Open Cpvp menu** is a normal Minecraft keybind under **Options → Controls → Key Binds → Cpvp**. It defaults to `Insert`, but can be changed there.
+- **Open Cpvp menu** is a normal Minecraft keybind under **Options → Controls → Key Binds → Cpvp**. It defaults to Insert, but can be changed there.
 - Left-click a module in the main GUI to toggle it. Right-click a module to open its settings.
 - Each module's **Toggle key** is configured inside that module's settings. Click the row, then press a keyboard key or mouse button.
-- Each setting has its own reset arrow. Delay rows use the dual-handle 0–5 tick slider shown in the updated settings screen.
-- Delay values are actual client ticks, not milliseconds. At 20 TPS, 1 tick is approximately 50 ms; 0 is the fastest one-action-per-client-tick setting. The min/max value is rolled once per action.
+- The menu and settings open with a short pop animation. Settings are laid out in two columns, and hovering a module or setting for one second shows a short English description.
+- Each setting has its own reset arrow. Delay rows use the dual-handle 0–5 tick slider.
+- Delay values are client ticks, not milliseconds. At 20 TPS, 1 tick is approximately 50 ms. The min/max value is rolled once per performed action.
 
 ## Modules
 
-- **Fast Crystal:** places crystals on an aimed obsidian/bedrock base. It does not take right-click away from golden apples, enchanted golden apples, ender pearls, or shields.
-- **Auto Crystal:** hold use on obsidian/bedrock to place a crystal and break it. The above-target check is based on the crystal/base top surface; it stops when the player's feet are clearly higher than that level.
-- **Hit Crystal:** hold use to break crystals in range. Its default action delay is 0–1 ticks.
-- **Anchor Macro:** the player places the respawn anchor manually. While use is held and the player is looking at that anchor, Cpvp charges it once with glowstone and detonates it with the configured hotbar slot. It does not place or switch to an anchor.
-- **Safe Anchor:** after the player manually places an anchor, it charges it once with glowstone, then tries to place exactly one glowstone block at the saved cover position between the player and anchor. The player's view turns only after the target cell and a supporting face are confirmed placeable, then turns back toward the anchor before totem detonation (default hotbar slot 9). If placement is not possible, it does not turn the view.
-- **Double Anchor:** you manually place only the first anchor. It remembers that exact cell, charges it with glowstone, switches to the configured Respawn Anchor hotbar slot, clicks the charged anchor to detonate it, then places the next anchor in the same cell using a freshly validated neighbouring support face. It continues after right-click is released. Explosion and placement phases retry a limited number of times; if the server rejects the interaction, the reason is shown in chat. Default: 2 passes.
-- **Auto Totem:** Auto mode replenishes offhand and backup hotbar automatically. Manual mode does nothing in the background: when the inventory is open, hover a totem to swap it into offhand; if offhand already has a totem, the hovered spare moves to the configured backup hotbar slot, swapping any item already in that destination back to the source slot.
-- **Sword Swap:** when attack is pressed while the crosshair is on another player, temporarily switches to the best hotbar sword for eligible held items and returns to the original slot. End crystals, axes and pickaxes are excluded.
+- **Fast Crystal:** places crystals on the obsidian/bedrock block under the crosshair. It preserves right-click for golden apples, enchanted golden apples, ender pearls, and shields in either hand.
+- **Auto Crystal:** while use is held, places a crystal on the obsidian/bedrock base under the crosshair and attacks a crystal the crosshair is on. The camera only turns (gradually, client-side) when the crosshair is on obsidian/bedrock that already carries a visible crystal, so the view is never moved anywhere else. It respects range and the configured above-target check.
+- **Hit Crystal:** while use is held, attacks an End Crystal directly under the crosshair and within the configured range.
+- **Anchor Macro:** the player places the respawn anchor manually. While use is held and the crosshair is on that anchor, Cpvp charges it with glowstone and detonates it with the configured hotbar slot, whatever that slot holds (a Respawn Anchor works; only glowstone cannot). It preserves priority-item use.
+- **Safe Anchor:** after detecting the manually placed anchor, Cpvp charges it with glowstone. If self-protection is needed, it finds a replaceable cover cell with a solid support face, gradually turns the client camera toward that face, and places one Glowstone block. It then gradually restores the view direction saved when the anchor sequence began, before aiming back at the anchor and detonating with the hotbar slot chosen in its settings (default slot 9, normally a Totem; any item that can detonate an anchor works). It never substitutes obsidian or another cover block.
+  **Crouch** setting (default on): once the anchor is charged and the crosshair is on one of its faces, Cpvp holds sneak, places the cover glowstone on that face (sneaking makes the anchor ignore the click) and releases sneak. The camera is not moved; if the crosshair is not on a usable face it falls back to the turn-and-place cover. Before any cover/detonation step the anchor charge is re-checked, and an uncharged anchor is charged first.
+  While a Safe Anchor sequence runs, Cpvp owns the use button so a held right-click cannot add extra charges or anchors; press right-click again for the next anchor. The cover glowstone is sent once the camera is within about 3 degrees of the verified support face, so it also works while running.
+- **Double Anchor:** manually place the first anchor. Cpvp charges it, detonates the first pass, then attempts to place the next anchor in the same cell using the module's air-place interaction hit. It charges the replacement and uses a Totem for the later detonation. The sequence continues after right-click is released. Air-place is not ordinary vanilla block placement; the server may reject it. Default: 2 passes.
+- **Auto Totem:** Auto mode replenishes the offhand and configured backup hotbar slot through vanilla inventory swap operations. Manual mode only acts while the player's inventory is open and the cursor is over a totem; it swaps the hovered totem into the offhand, or into the configured backup slot if the offhand already contains a totem.
+- **Sword Swap:** on the attack-button press while the crosshair is on another player, temporarily selects the best hotbar sword for eligible held items, then restores the previous slot. Any held item swaps (an End Crystal included) except axes and pickaxes. It never swaps for other entities or for air.
 
-## Notes
+## Interaction model
 
-- Minecraft and the server still determine whether an interaction succeeds; range, inventory state, and server rules apply.
-- Anchor automation should be tested on a local 26.2 world before relying on it on a server.
+- Combat actions use Minecraft's client game-mode interaction methods. Camera rotation is performed through the local player yaw/pitch; no custom server-rotation packet spoofing is used.
+- The Double Anchor air-place attempt uses a constructed interaction hit for its specific mechanic. This is not a vanilla placement guarantee and can be rejected by a server or anti-cheat.
+- Normal reach, visibility, inventory state, server validation, and game rules still apply. No anti-cheat bypass or ban-safety guarantee is claimed.
+- Test all sequences in a local 26.2 world before relying on them on a server.
