@@ -933,9 +933,19 @@ public final class CombatModuleEngine {
 
         float yawDelta = wrapDegrees(targetYaw - c.player.getYRot());
         float pitchDelta = targetPitch - c.player.getXRot();
-        c.player.setYRot(c.player.getYRot() + clampAngle(yawDelta, maxYawStep));
+        c.player.setYRot(c.player.getYRot() + easedStep(yawDelta, maxYawStep));
         c.player.setXRot(Math.max(-90.0f, Math.min(90.0f,
-                c.player.getXRot() + clampAngle(pitchDelta, maxPitchStep))));
+                c.player.getXRot() + easedStep(pitchDelta, maxPitchStep))));
+    }
+
+    /**
+     * Ease-out turn: a fixed share of the remaining angle each tick (fast when far, gentle
+     * when close), never below 1.5 degrees, never above the cap and never past the target.
+     */
+    private static float easedStep(float delta, float maxStep) {
+        float size = Math.abs(delta);
+        float step = Math.min(maxStep, Math.max(1.5f, size * 0.35f));
+        return Math.copySign(Math.min(step, size), delta);
     }
 
     /** Angle in degrees between the real look direction and the direction to the target. */
@@ -954,9 +964,9 @@ public final class CombatModuleEngine {
             c.player.setXRot(targetPitch);
             return true;
         }
-        c.player.setYRot(c.player.getYRot() + clampAngle(yawDelta, FAST_YAW_STEP));
+        c.player.setYRot(c.player.getYRot() + easedStep(yawDelta, FAST_YAW_STEP));
         c.player.setXRot(Math.max(-90.0f, Math.min(90.0f,
-                c.player.getXRot() + clampAngle(pitchDelta, FAST_PITCH_STEP))));
+                c.player.getXRot() + easedStep(pitchDelta, FAST_PITCH_STEP))));
         return false;
     }
 
